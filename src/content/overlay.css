@@ -1,0 +1,307 @@
+#kalshi-live-overlay-root {
+  all: initial;
+}
+
+#kalshi-live-overlay-root,
+#kalshi-live-overlay-root * {
+  box-sizing: border-box;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.klo-shell {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2147483647;
+  width: min(332px, calc(100vw - 24px));
+  color: #eff7ff;
+  background:
+    radial-gradient(circle at top left, rgba(76, 211, 170, 0.16), transparent 30%),
+    linear-gradient(180deg, rgba(5, 13, 22, 0.84) 0%, rgba(10, 21, 34, 0.84) 100%);
+  border: 1px solid rgba(138, 173, 210, 0.18);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(16px);
+  overflow: hidden;
+}
+
+.klo-shell.minimized {
+  width: min(360px, calc(100vw - 24px));
+}
+
+.klo-shell.dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.klo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(138, 173, 210, 0.12);
+  cursor: grab;
+}
+
+.klo-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #70e4bf;
+}
+
+.klo-matchup {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  max-width: 220px;
+}
+
+.klo-toggle {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eff7ff;
+  cursor: pointer;
+}
+
+.klo-close {
+  background: rgba(255, 107, 107, 0.14);
+  color: #ffb6b6;
+}
+
+.klo-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.klo-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.klo-scoreboard,
+.klo-card {
+  background: rgba(11, 25, 41, 0.86);
+  border: 1px solid rgba(138, 173, 210, 0.12);
+  border-radius: 18px;
+}
+
+.klo-scoreboard {
+  padding: 12px;
+}
+
+.klo-score-row,
+.klo-row,
+.klo-space-between {
+  display: flex;
+  align-items: center;
+}
+
+.klo-score-row,
+.klo-space-between {
+  justify-content: space-between;
+}
+
+.klo-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 72px;
+  font-size: 13px;
+  color: #c2d8ee;
+}
+
+.klo-team strong {
+  font-size: 28px;
+  color: #ffffff;
+}
+
+.klo-center {
+  text-align: center;
+  flex: 1;
+}
+
+.klo-live {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #08131f;
+  background: #61ebae;
+}
+
+.klo-live-neutral {
+  color: #0f1b2a;
+  background: #f7c948;
+}
+
+.klo-live-final {
+  color: #eff7ff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.klo-clock {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.klo-possession {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #c2d8ee;
+}
+
+.klo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.klo-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9cb7d3;
+}
+
+.klo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.klo-card {
+  padding: 11px;
+}
+
+.klo-card-label,
+.klo-side,
+.klo-card-target,
+.klo-position-numbers,
+.klo-prop-trend,
+.klo-card-note,
+.klo-footer {
+  font-size: 12px;
+  color: #c2d8ee;
+}
+
+.klo-card-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.klo-stack-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.klo-chip {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.klo-side {
+  font-weight: 800;
+  color: #f7c948;
+}
+
+.klo-position-numbers,
+.klo-position-pricing,
+.klo-position-pnl,
+.klo-prop-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.klo-position-pricing,
+.klo-position-pnl {
+  flex-wrap: wrap;
+}
+
+.klo-pnl-positive {
+  color: #61ebae;
+  font-weight: 800;
+}
+
+.klo-pnl-negative {
+  color: #ff8a80;
+  font-weight: 800;
+}
+
+.klo-prop-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.klo-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  margin-top: 10px;
+}
+
+.klo-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.klo-card-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+
+.klo-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.klo-reopen {
+  position: fixed;
+  z-index: 2147483647;
+  border: 1px solid rgba(138, 173, 210, 0.18);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(5, 13, 22, 0.88);
+  color: #eff7ff;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .klo-shell {
+    width: min(332px, calc(100vw - 24px));
+  }
+}

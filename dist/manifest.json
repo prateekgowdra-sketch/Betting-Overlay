@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Kalshi Live Overlay",
+  "description": "Demo Chrome extension that overlays live sports context with Kalshi-style positions and player prop tracking.",
+  "version": "0.1.0",
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kalshi Live Overlay"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
