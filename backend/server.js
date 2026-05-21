@@ -54,6 +54,13 @@ function parseDemoMode(searchParams) {
 loadEnv();
 
 const PORT = Number(process.env.PORT || 3001);
+const AVAILABLE_ROUTES = [
+  "GET /",
+  "GET /health",
+  "GET /api/live/game/:gameId",
+  "GET /api/live/players/:gameId",
+  "GET /api/kalshi/positions/:gameId"
+];
 
 const server = createServer((request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
@@ -67,6 +74,22 @@ const server = createServer((request, response) => {
 
   if (request.method !== "GET") {
     sendJson(response, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  if (url.pathname === "/") {
+    sendJson(response, 200, {
+      name: "Kalshi Live Overlay API",
+      status: "running"
+    });
+    return;
+  }
+
+  if (url.pathname === "/health") {
+    sendJson(response, 200, {
+      status: "ok",
+      message: "Backend running"
+    });
     return;
   }
 
@@ -116,4 +139,8 @@ const server = createServer((request, response) => {
 
 server.listen(PORT, () => {
   console.log(`Kalshi Live Overlay backend listening on http://localhost:${PORT}`);
+  console.log("Available routes:");
+  for (const route of AVAILABLE_ROUTES) {
+    console.log(`- http://localhost:${PORT}${route.slice(4).replace(/:gameId/g, "knicks-cavs-demo")}`);
+  }
 });

@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { OverlayApp } from "./OverlayApp";
-import overlayCss from "./overlay.css?inline";
+import overlayCss from "./overlay.css";
 
 const ROOT_ID = "kalshi-live-overlay-root";
 

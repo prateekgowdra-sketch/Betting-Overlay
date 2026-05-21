@@ -1,27 +1,46 @@
-import { defineConfig } from "vite";
+import { build as esbuildBuild } from "esbuild";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
+import { defineConfig, type Plugin } from "vite";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
+function contentScriptBundlePlugin(): Plugin {
+  return {
+    name: "content-script-bundle",
+    apply: "build",
+    async closeBundle() {
+      await esbuildBuild({
+        absWorkingDir: rootDir,
+        entryPoints: [resolve(rootDir, "src/content/index.tsx")],
+        outfile: resolve(rootDir, "dist/assets/content.js"),
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: ["chrome114"],
+        jsx: "automatic",
+        loader: {
+          ".css": "text"
+        },
+        minify: true
+      });
+    }
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), contentScriptBundlePlugin()],
   build: {
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
       input: {
         popup: resolve(rootDir, "popup.html"),
-        content: resolve(rootDir, "src/content/index.tsx"),
         background: resolve(rootDir, "src/background/index.ts")
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === "content") {
-            return "assets/content.js";
-          }
-
           if (chunkInfo.name === "background") {
             return "assets/background.js";
           }
