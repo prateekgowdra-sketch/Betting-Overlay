@@ -7,7 +7,8 @@
     "backend": "node backend/server.js",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test backend/services/*.test.js"
   },
   "dependencies": {
     "react": "^18.3.1",

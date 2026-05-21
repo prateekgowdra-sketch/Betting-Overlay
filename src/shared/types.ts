@@ -1,4 +1,15 @@
 export type TeamId = "NYK" | "CLE";
+export type StatType =
+  | "points"
+  | "rebounds"
+  | "assists"
+  | "three_pointers"
+  | "passing_yards"
+  | "rushing_yards"
+  | "receiving_yards"
+  | "touchdowns"
+  | "goals"
+  | "strikeouts";
 
 export type PositionStatus = "on-track" | "sweating" | "danger" | "won" | "lost";
 
@@ -14,7 +25,7 @@ export interface PlayerStat {
   id: string;
   playerName: string;
   team: TeamId;
-  statType: "points" | "rebounds";
+  statType: StatType;
   direction: "over" | "under";
   current: number;
   target: number;
@@ -27,7 +38,7 @@ export interface PlayerStat {
 export interface MarketLeg {
   id: string;
   playerName: string;
-  statType: "points" | "rebounds";
+  statType: StatType;
   direction: "over" | "under";
   current: number;
   target: number;
@@ -35,6 +46,19 @@ export interface MarketLeg {
   progress: number;
   status: PositionStatus;
   whatNeedsToHappen: string;
+}
+
+export interface ParsedMarket {
+  marketType: "team" | "player" | "unknown";
+  isTeamMarket: boolean;
+  isPlayerMarket: boolean;
+  teamMarketTitle?: string;
+  playerName?: string;
+  target?: number;
+  direction?: "over" | "under";
+  statType?: StatType;
+  whatNeedsToHappen: string;
+  marketLeg?: MarketLeg;
 }
 
 export interface KalshiPosition {

@@ -1,3 +1,5 @@
+import { parseKalshiMarketTitle } from "./marketParsingService.js";
+
 function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -13,6 +15,10 @@ function currentByPlayer(game, playerName, statType) {
 
 class KalshiService {
   getPositionsForGame(gameId, game) {
+    const teamMarketTitle = "Will the Knicks beat the Cavaliers?";
+    const brunsonMarketTitle = "Will Jalen Brunson score 25+ points?";
+    const parsedTeamMarket = parseKalshiMarketTitle(teamMarketTitle);
+    const parsedBrunsonMarket = parseKalshiMarketTitle(brunsonMarketTitle);
     const brunsonPoints = currentByPlayer(game, "Jalen Brunson", "points");
     const margin = game.homeTeam.score - game.awayTeam.score;
     const brunsonRemaining = Math.max(0, 25 - brunsonPoints);
@@ -23,7 +29,7 @@ class KalshiService {
       positions: [
         {
           id: "knicks-moneyline",
-          marketTitle: "Will the Knicks beat the Cavaliers?",
+          marketTitle: teamMarketTitle,
           platform: "Kalshi",
           side: "YES",
           contracts: 10,
@@ -32,11 +38,12 @@ class KalshiService {
           whatNeedsToHappen:
             margin > 0
               ? "The Knicks need to stay in front until the final buzzer."
-              : `The Knicks need to erase a ${Math.abs(margin)}-point deficit and win.`
+              : `The Knicks need to erase a ${Math.abs(margin)}-point deficit and win.`,
+          parsedMarket: parsedTeamMarket
         },
         {
           id: "brunson-25",
-          marketTitle: "Will Jalen Brunson score 25+ points?",
+          marketTitle: brunsonMarketTitle,
           platform: "Kalshi",
           side: "YES",
           contracts: 5,
@@ -47,19 +54,19 @@ class KalshiService {
             brunsonRemaining === 0
               ? "Brunson has already cleared 25 points."
               : `${brunsonRemaining} more point${brunsonRemaining === 1 ? "" : "s"} from Brunson to cash.`,
-          marketLeg: {
-            id: "brunson-points-leg",
-            playerName: "Jalen Brunson",
-            statType: "points",
-            direction: "over",
-            current: brunsonPoints,
-            target: 25,
-            unit: "pts",
-            whatNeedsToHappen:
-              brunsonRemaining === 0
-                ? "Brunson has already cleared 25 points."
-                : `${brunsonRemaining} more point${brunsonRemaining === 1 ? "" : "s"} from Brunson to cash.`
-          }
+          marketLeg: parsedBrunsonMarket.marketLeg
+            ? {
+                ...parsedBrunsonMarket.marketLeg,
+                current: brunsonPoints,
+                progress: clampPercent((brunsonPoints / parsedBrunsonMarket.marketLeg.target) * 100),
+                status: brunsonPoints >= parsedBrunsonMarket.marketLeg.target ? "won" : "sweating",
+                whatNeedsToHappen:
+                  brunsonRemaining === 0
+                    ? "Brunson has already cleared 25 points."
+                    : `${brunsonRemaining} more point${brunsonRemaining === 1 ? "" : "s"} from Brunson to cash.`
+              }
+            : undefined,
+          parsedMarket: parsedBrunsonMarket
         }
       ]
     };
