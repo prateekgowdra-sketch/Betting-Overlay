@@ -1,48 +1,124 @@
-# Kalshi Live Overlay
+# Betting Overlay
 
-Demo Chrome extension MVP for tracking mock Kalshi-style sports positions while watching a live game on any webpage.
+Betting Overlay is a Chrome extension MVP that turns live game data and Kalshi-style market positions into a lightweight on-screen companion for sports viewers.
 
-## What It Does
+## Overview
 
-- Injects a floating overlay onto webpages
-- Shows live mock game state for Knicks vs Cavaliers
-- Tracks Kalshi-style open positions
-- Displays player prop progress with status colors and progress bars
-- Polls a `LiveStatsService` every 15 seconds and updates the overlay automatically
-- Includes an auto-updating demo mode that advances mock score, clock, quarter, and player stats on each backend poll
-- Keeps the popup focused on game selection and demo mode settings
+Watching a game while tracking prediction market positions is fragmented: the stream is in one place, market contracts are in another, and player stat context is often buried across multiple tabs. Betting Overlay solves that by placing a compact live overlay directly on top of any webpage, combining game state, tracked player legs, and Kalshi-style position context into a single view.
 
-## Setup
+This repository is structured as a serious MVP rather than a throwaway prototype. The Chrome extension UI is intentionally thin, the backend owns all live data retrieval and future API key management, and shared types keep the system ready for deeper integrations.
 
-1. `npm install`
-2. Copy `backend/.env.example` to `backend/.env`
-3. Run `npm run backend`
-4. In a second terminal, run `npm run build`
-5. Go to `chrome://extensions`
-6. Turn on **Developer Mode**
-7. Click **Load unpacked**
-8. Select the `dist` folder
+## Current MVP Features
 
-## How To Use
+- Floating Chrome extension overlay that injects onto normal webpages
+- Draggable, minimizable, and closable sports-broadcast style UI
+- Live game scoreboard for the Knicks vs Cavaliers demo matchup
+- Kalshi-style position cards with:
+  - market title
+  - side
+  - contracts
+  - entry price
+  - current price
+  - unrealized P/L
+  - what still needs to happen
+- Player stat tracker cards for demo market legs
+- Auto-updating demo mode that simulates a live backend feed
+- Polling architecture between the extension and local backend every 15 seconds
+- Loading and error states in the overlay
+- Backend service split for future sports API and Kalshi API replacement
 
-- Open any normal webpage
-- Click the Kalshi Live Overlay extension icon
-- Choose the game feed and toggle demo mode in the popup
-- Keep the backend running on `http://localhost:3001`
-- Watch the overlay refresh live on the page every 15 seconds
+## Architecture
+
+The current MVP follows a clean three-layer structure:
+
+1. Chrome Extension UI
+   - Displays the overlay
+   - Polls backend endpoints
+   - Contains no API keys
+   - Handles loading and error presentation
+
+2. Backend API
+   - Serves live game state and Kalshi-style positions
+   - Uses mock services today
+   - Is designed to later connect to real NBA and Kalshi APIs
+
+3. Shared Types
+   - Defines the core overlay domain model:
+     - `GameState`
+     - `PlayerStat`
+     - `KalshiPosition`
+     - `OverlayStatus`
+     - `MarketLeg`
+
+## Tech Stack
+
+- Chrome Extension Manifest V3
+- React
+- TypeScript
+- Vite
+- Node.js
+- Lightweight custom local backend server
+
+## Run Locally
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create a backend environment file:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+3. Start the local backend:
+
+```bash
+npm run backend
+```
+
+4. Build the Chrome extension in a second terminal:
+
+```bash
+npm run build
+```
+
+## Load the Chrome Extension
+
+1. Open `chrome://extensions`
+2. Turn on **Developer Mode**
+3. Click **Load unpacked**
+4. Select the `dist` folder
+
+Once loaded, open any standard webpage, click the extension icon, and keep the backend running on `http://localhost:3001`.
+
+## Demo Mode
+
+The current MVP ships with an auto-updating demo mode designed to simulate the final live product flow.
+
+- The extension polls the backend every 15 seconds
+- The backend advances mock Knicks vs Cavaliers game state over time
+- Scores, quarter, game clock, and tracked player stats change between polls
+- Kalshi-style position values update based on the latest mock game context
+
+This gives the project a realistic interaction model without embedding real provider credentials or depending on unstable third-party APIs during MVP development.
+
+## Planned Future Features
+
+- Real Kalshi API integration
+- Real NBA live stats API integration
+- Automatic market-to-player matching
+- Stream overlay improvements
+- Player highlighting
 
 ## Notes
 
-- This project uses Chrome Manifest V3
-- The content script is configured for `<all_urls>`
-- Chrome does not allow content scripts on certain restricted pages such as `chrome://` URLs or the Chrome Web Store
-- The build output used for Chrome is the `dist` folder
-- Live game data is fetched from backend routes on `http://localhost:3001/api/live/...`
-- Any future sports data API key should live only in `backend/.env`, never in the Chrome extension bundle
+- The content script is configured for normal supported webpages via Chrome extension injection
+- Chrome will not run the overlay on protected pages such as `chrome://` URLs or the Chrome Web Store
+- Future sports data API keys should live only in the backend `.env`, never in the extension bundle
 
-## Validation
+## Disclaimer
 
-- `manifest.json` is included in the build as a Manifest V3 file
-- The overlay content script loads on all supported URLs
-- The backend exposes `GET /api/live/game/:gameId` and `GET /api/live/players/:gameId`
-- `npm run build` completes successfully with no TypeScript errors
+This project is a software demo and portfolio project. It is not official betting advice, does not guarantee market accuracy, and is not affiliated with, endorsed by, or sponsored by Kalshi.

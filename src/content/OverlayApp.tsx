@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { applyLiveStatsToState, buildInitialState } from "../shared/mockState";
+import { backendApi } from "../services/backendApi";
+import { buildInitialOverlayData, mapBackendResponsesToOverlayData } from "../shared/overlayState";
 import {
   APP_SETTINGS_KEY,
   AppSettings,
@@ -9,8 +10,7 @@ import {
   OverlayUiState,
   saveOverlayUiState
 } from "../shared/storage";
-import { DemoState, PlayerProp, Position } from "../shared/types";
-import { liveStatsService } from "../services/liveStatsService";
+import { GameState, KalshiPosition, MarketLeg, OverlayData, OverlayStatus, PlayerStat } from "../shared/types";
 import { statusColor, statusLabel } from "../shared/ui";
 
 function ProgressBar({ progress, color }: { progress: number; color: string }) {
@@ -21,12 +21,9 @@ function ProgressBar({ progress, color }: { progress: number; color: string }) {
   );
 }
 
-function PositionCard({ position }: { position: Position }) {
+function PositionCard({ position }: { position: KalshiPosition }) {
   const color = statusColor(position.status);
-  const currentValue = position.currentPriceCents * position.contracts;
-  const costBasis = position.entryPriceCents * position.contracts;
-  const unrealizedPnL = currentValue - costBasis;
-  const isPositive = unrealizedPnL >= 0;
+  const isPositive = position.unrealizedPnLCents >= 0;
 
   return (
     <article className="klo-card">
@@ -55,64 +52,91 @@ function PositionCard({ position }: { position: Position }) {
         <span>Now {position.currentPriceCents}c</span>
       </div>
       <div className="klo-position-pnl">
-        <span>Value {currentValue}c</span>
-        <span>Cost {costBasis}c</span>
+        <span>Value {position.currentValueCents}c</span>
+        <span>Cost {position.costBasisCents}c</span>
         <span className={isPositive ? "klo-pnl-positive" : "klo-pnl-negative"}>
           P/L {isPositive ? "+" : ""}
-          {unrealizedPnL}c
+          {position.unrealizedPnLCents}c
         </span>
       </div>
       <div className="klo-card-note">
         <span>{position.whatNeedsToHappen}</span>
+        {position.leg ? (
+          <span className="klo-subtle">
+            {position.leg.playerName}: {position.leg.current}/{position.leg.target} {position.leg.unit}
+          </span>
+        ) : null}
       </div>
     </article>
   );
 }
 
-function PropCard({ prop }: { prop: PlayerProp }) {
-  const color = statusColor(prop.status);
-  const targetLabel = `${prop.direction} ${prop.target}`;
-  const cardStatusLabel =
-    prop.direction === "over"
-      ? prop.current >= prop.target
-        ? "Cashed"
-        : "Alive"
-      : prop.current > prop.target
-        ? "Dead"
-        : "Alive";
+function legStatusLabel(stat: PlayerStat | MarketLeg) {
+  if (stat.direction === "over") {
+    return stat.current >= stat.target ? "Cashed" : "Alive";
+  }
+
+  return stat.current > stat.target ? "Dead" : "Alive";
+}
+
+function PlayerStatCard({ playerStat }: { playerStat: PlayerStat }) {
+  const color = statusColor(playerStat.status);
 
   return (
     <article className="klo-card">
       <div className="klo-row klo-space-between">
         <div>
           <div className="klo-card-label">
-            {prop.team} • {prop.statLabel}
+            {playerStat.team} • {playerStat.statType}
           </div>
-          <div className="klo-card-title">{prop.player}</div>
+          <div className="klo-card-title">{playerStat.playerName}</div>
         </div>
         <div className="klo-stack-end">
-          <span className="klo-card-target">{targetLabel}</span>
+          <span className="klo-card-target">
+            {playerStat.direction} {playerStat.target}
+          </span>
           <span className="klo-chip" style={{ backgroundColor: `${color}1e`, color }}>
-            {cardStatusLabel}
+            {legStatusLabel(playerStat)}
           </span>
         </div>
       </div>
 
       <div className="klo-prop-metric">
         <span className="klo-prop-value">
-          {prop.current} {prop.unit}
+          {playerStat.current} {playerStat.unit}
         </span>
-        <span className="klo-prop-trend">Target {prop.target}</span>
+        <span className="klo-prop-trend">Target {playerStat.target}</span>
       </div>
 
-      <ProgressBar progress={prop.progress} color={color} />
-      <div className="klo-card-note">{prop.whatIsNeeded}</div>
+      <ProgressBar progress={playerStat.progress} color={color} />
+      <div className="klo-card-note">{playerStat.whatIsNeeded}</div>
+    </article>
+  );
+}
+
+function LoadingOrErrorCard({
+  title,
+  message,
+  kind
+}: {
+  title: string;
+  message: string;
+  kind: "loading" | "error";
+}) {
+  return (
+    <article className={`klo-card klo-status-card ${kind}`}>
+      <div className="klo-card-title">{title}</div>
+      <div className="klo-card-note">{message}</div>
     </article>
   );
 }
 
 export function OverlayApp() {
-  const [state, setState] = useState<DemoState>(() => buildInitialState());
+  const [overlayData, setOverlayData] = useState<OverlayData>(() => buildInitialOverlayData());
+  const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({
+    state: "loading",
+    message: "Connecting to backend..."
+  });
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -153,37 +177,55 @@ export function OverlayApp() {
       return;
     }
 
-    liveStatsService.setDemoMode(settings.demoMode);
+    backendApi.setDemoMode(settings.demoMode);
 
-    const syncLiveStats = async () => {
+    const syncOverlayData = async () => {
       if (syncInFlightRef.current) {
         return;
       }
 
       syncInFlightRef.current = true;
 
+      setOverlayStatus((current) =>
+        current.state === "ready"
+          ? current
+          : { state: "loading", message: "Loading overlay data..." }
+      );
+
       try {
-        const [gameStats, playerStats] = await Promise.all([
-          liveStatsService.getLiveGameStats(settings.selectedGameId),
-          liveStatsService.getPlayerStats(settings.selectedGameId, [
-            "Jalen Brunson",
-            "Karl-Anthony Towns",
-            "Donovan Mitchell"
-          ])
+        const [gameStateResponse, kalshiPositionsResponse] = await Promise.all([
+          backendApi.getGameState(settings.selectedGameId),
+          backendApi.getKalshiPositions(settings.selectedGameId)
         ]);
-        setState((currentState) =>
-          applyLiveStatsToState(currentState, gameStats, playerStats)
+        const nextOverlayData = mapBackendResponsesToOverlayData(
+          gameStateResponse,
+          kalshiPositionsResponse
         );
+
+        setOverlayData(nextOverlayData);
+        setOverlayStatus({
+          state: "ready",
+          lastUpdated: nextOverlayData.gameState.updatedAt
+        });
       } catch (error) {
-        console.error("Failed to sync live stats", error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the backend. Make sure localhost:3001 is running.";
+
+        setOverlayStatus({
+          state: "error",
+          message,
+          lastUpdated: overlayData.gameState.updatedAt
+        });
       } finally {
         syncInFlightRef.current = false;
       }
     };
 
-    void syncLiveStats();
+    void syncOverlayData();
     const interval = window.setInterval(() => {
-      void syncLiveStats();
+      void syncOverlayData();
     }, 15000);
 
     return () => {
@@ -227,8 +269,8 @@ export function OverlayApp() {
   }, [dragging, uiState]);
 
   const activePositions = useMemo(
-    () => state?.positions.filter((position) => position.status !== "lost").length ?? 0,
-    [state]
+    () => overlayData.positions.filter((position) => position.status !== "lost").length,
+    [overlayData.positions]
   );
 
   async function updateUiState(next: OverlayUiState) {
@@ -240,12 +282,13 @@ export function OverlayApp() {
     return null;
   }
 
-  const home = state.game.homeTeam;
-  const away = state.game.awayTeam;
+  const gameState: GameState = overlayData.gameState;
+  const home = gameState.homeTeam;
+  const away = gameState.awayTeam;
   const minimizedLabel = `Kalshi Overlay | Knicks vs Cavs | ${activePositions} active positions`;
-  const isLive = state.game.gameStatus === "live";
-  const isUpcoming = state.game.gameStatus === "upcoming";
-  const isFinal = state.game.gameStatus === "final";
+  const isLive = gameState.gameStatus === "live";
+  const isUpcoming = gameState.gameStatus === "upcoming";
+  const isFinal = gameState.gameStatus === "final";
 
   if (uiState.closed) {
     return (
@@ -289,7 +332,7 @@ export function OverlayApp() {
       >
         <div>
           {!uiState.minimized && <div className="klo-eyebrow">Kalshi Live Overlay</div>}
-          <div className="klo-matchup">{uiState.minimized ? minimizedLabel : state.game.title}</div>
+          <div className="klo-matchup">{uiState.minimized ? minimizedLabel : gameState.title}</div>
         </div>
         <div className="klo-actions">
           <button
@@ -335,10 +378,10 @@ export function OverlayApp() {
                 {isLive && (
                   <>
                     <div className="klo-clock">
-                      {state.game.quarter} • {state.game.gameClock}
+                      {gameState.quarter} • {gameState.gameClock}
                     </div>
                     <div className="klo-possession">
-                      Possession: {state.game.possession === "NYK" ? "Knicks" : "Cavaliers"}
+                      Possession: {gameState.possession === "NYK" ? "Knicks" : "Cavaliers"}
                     </div>
                   </>
                 )}
@@ -351,27 +394,50 @@ export function OverlayApp() {
             </div>
           </section>
 
+          {overlayStatus.state === "loading" ? (
+            <LoadingOrErrorCard
+              title="Loading"
+              message={overlayStatus.message ?? "Fetching game state and positions..."}
+              kind="loading"
+            />
+          ) : null}
+
+          {overlayStatus.state === "error" ? (
+            <LoadingOrErrorCard
+              title="Backend Error"
+              message={overlayStatus.message ?? "Unable to load overlay data."}
+              kind="error"
+            />
+          ) : null}
+
           <section className="klo-section">
-            <div className="klo-section-title">Active Positions</div>
+            <div className="klo-section-title">Kalshi Positions</div>
             <div className="klo-list">
-              {state.positions.map((position) => (
+              {overlayData.positions.map((position) => (
                 <PositionCard position={position} key={position.id} />
               ))}
             </div>
           </section>
 
           <section className="klo-section">
-            <div className="klo-section-title">Player Prop Progress</div>
+            <div className="klo-section-title">Player Stat Tracker</div>
             <div className="klo-list">
-              {state.playerProps.map((prop) => (
-                <PropCard prop={prop} key={prop.id} />
+              {gameState.playerStats.map((playerStat) => (
+                <PlayerStatCard playerStat={playerStat} key={playerStat.id} />
               ))}
             </div>
           </section>
 
           <footer className="klo-footer">
-            <span>Manual demo mode</span>
-            <span>Updated {new Date(state.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+            <span>{settings?.demoMode ? "Demo backend mode" : "Backend mode"}</span>
+            <span>
+              {overlayStatus.lastUpdated
+                ? `Updated ${new Date(overlayStatus.lastUpdated).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit"
+                  })}`
+                : "Waiting for data"}
+            </span>
           </footer>
         </div>
       )}

@@ -280,6 +280,18 @@
   margin-top: 10px;
 }
 
+.klo-subtle {
+  color: #8da9c6;
+}
+
+.klo-status-card.loading {
+  border-color: rgba(247, 201, 72, 0.22);
+}
+
+.klo-status-card.error {
+  border-color: rgba(255, 107, 107, 0.24);
+}
+
 .klo-footer {
   display: flex;
   justify-content: space-between;

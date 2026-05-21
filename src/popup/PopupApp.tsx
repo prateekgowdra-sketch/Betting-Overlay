@@ -4,7 +4,7 @@ import {
   getAppSettings,
   saveAppSettings
 } from "../shared/storage";
-import { liveStatsService } from "../services/liveStatsService";
+import { backendApi } from "../services/backendApi";
 
 export function PopupApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -15,8 +15,8 @@ export function PopupApp() {
     void getAppSettings().then((nextSettings) => {
       setSettings(nextSettings);
       const selectedGame =
-        liveStatsService.getSupportedGames().find((game) => game.id === nextSettings.selectedGameId) ??
-        liveStatsService.getSupportedGames()[0];
+        backendApi.getSupportedGames().find((game) => game.id === nextSettings.selectedGameId) ??
+        backendApi.getSupportedGames()[0];
       setGameTitle(selectedGame?.label ?? "Knicks vs Cavaliers Demo");
     });
   }, []);
@@ -32,7 +32,7 @@ export function PopupApp() {
     return <div className="popup-shell loading">Loading settings...</div>;
   }
 
-  const games = liveStatsService.getSupportedGames();
+  const games = backendApi.getSupportedGames();
 
   return (
     <div className="popup-shell">
@@ -40,7 +40,8 @@ export function PopupApp() {
         <div>
           <div className="eyebrow">Live Stats MVP</div>
           <h1>Kalshi Live Overlay</h1>
-          <p>Stats refresh automatically every 15 seconds through the live stats service layer.</p>
+          <p>Stats refresh automatically every 15 seconds through backend API endpoints.</p>
+          <p>The extension UI only renders backend responses and keeps API keys out of the browser.</p>
         </div>
       </header>
 

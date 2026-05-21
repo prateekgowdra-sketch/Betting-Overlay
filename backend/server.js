@@ -1,6 +1,8 @@
 import { createServer } from "http";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { kalshiService } from "./services/kalshiService.js";
+import { liveSportsService } from "./services/liveSportsService.js";
 
 function loadEnv() {
   const envPath = join(process.cwd(), "backend", ".env");
@@ -33,122 +35,6 @@ function loadEnv() {
   }
 }
 
-loadEnv();
-
-const PORT = Number(process.env.PORT || 3001);
-const DEMO_GAME_ID = "knicks-cavs-demo";
-
-const timeline = [
-  {
-    gameStatus: "live",
-    quarter: "Q3",
-    gameClock: "10:58",
-    possessionTeam: "NYK",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 82 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 77 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 18 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 8 },
-      "Donovan Mitchell": { team: "CLE", points: 21 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q3",
-    gameClock: "9:21",
-    possessionTeam: "CLE",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 84 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 80 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 19 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 8 },
-      "Donovan Mitchell": { team: "CLE", points: 22 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q3",
-    gameClock: "6:14",
-    possessionTeam: "CLE",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 88 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 84 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 21 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 9 },
-      "Donovan Mitchell": { team: "CLE", points: 24 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q3",
-    gameClock: "2:48",
-    possessionTeam: "NYK",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 93 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 89 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 22 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 9 },
-      "Donovan Mitchell": { team: "CLE", points: 25 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q4",
-    gameClock: "11:37",
-    possessionTeam: "CLE",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 95 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 92 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 23 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 9 },
-      "Donovan Mitchell": { team: "CLE", points: 26 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q4",
-    gameClock: "8:42",
-    possessionTeam: "NYK",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 101 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 95 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 24 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 10 },
-      "Donovan Mitchell": { team: "CLE", points: 27 }
-    }
-  },
-  {
-    gameStatus: "live",
-    quarter: "Q4",
-    gameClock: "2:11",
-    possessionTeam: "NYK",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 108 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 102 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 27 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 11 },
-      "Donovan Mitchell": { team: "CLE", points: 29 }
-    }
-  },
-  {
-    gameStatus: "final",
-    quarter: "Q4",
-    gameClock: "0:00",
-    possessionTeam: "NYK",
-    homeTeam: { name: "New York Knicks", shortName: "NYK", score: 112 },
-    awayTeam: { name: "Cleveland Cavaliers", shortName: "CLE", score: 106 },
-    players: {
-      "Jalen Brunson": { team: "NYK", points: 29 },
-      "Karl-Anthony Towns": { team: "NYK", rebounds: 12 },
-      "Donovan Mitchell": { team: "CLE", points: 31 }
-    }
-  }
-];
-
-const sequenceIndexByGame = new Map();
-const activeSnapshotByGame = new Map();
-const SNAPSHOT_WINDOW_MS = 5000;
-
 function setCorsHeaders(response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -161,43 +47,13 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function getCurrentSnapshot(gameId) {
-  const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
-  return timeline[Math.min(currentIndex, timeline.length - 1)];
-}
-
-function advanceSnapshot(gameId, demoMode) {
-  const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
-
-  if (demoMode && currentIndex < timeline.length - 1) {
-    sequenceIndexByGame.set(gameId, currentIndex + 1);
-    return;
-  }
-
-  sequenceIndexByGame.set(gameId, currentIndex);
-}
-
-function getSnapshotForRequest(gameId, demoMode) {
-  const existingWindow = activeSnapshotByGame.get(gameId);
-
-  if (existingWindow && existingWindow.expiresAt > Date.now()) {
-    return existingWindow.snapshot;
-  }
-
-  const snapshot = getCurrentSnapshot(gameId);
-
-  activeSnapshotByGame.set(gameId, {
-    snapshot,
-    expiresAt: Date.now() + SNAPSHOT_WINDOW_MS
-  });
-
-  advanceSnapshot(gameId, demoMode);
-  return snapshot;
-}
-
 function parseDemoMode(searchParams) {
   return searchParams.get("demoMode") !== "false";
 }
+
+loadEnv();
+
+const PORT = Number(process.env.PORT || 3001);
 
 const server = createServer((request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
@@ -215,62 +71,43 @@ const server = createServer((request, response) => {
   }
 
   const demoMode = parseDemoMode(url.searchParams);
-  const gameMatch = url.pathname.match(/^\/api\/live\/game\/([^/]+)$/);
-  const playersMatch = url.pathname.match(/^\/api\/live\/players\/([^/]+)$/);
+  const liveGameMatch = url.pathname.match(/^\/api\/live\/game\/([^/]+)$/);
+  const livePlayersMatch = url.pathname.match(/^\/api\/live\/players\/([^/]+)$/);
+  const kalshiMatch = url.pathname.match(/^\/api\/kalshi\/positions\/([^/]+)$/);
 
-  if (gameMatch) {
-    const gameId = gameMatch[1];
+  if (liveGameMatch) {
+    const game = liveSportsService.getLiveGame(liveGameMatch[1], demoMode);
 
-    if (gameId !== DEMO_GAME_ID) {
+    if (!game) {
       sendJson(response, 404, { error: "Unknown gameId" });
       return;
     }
 
-    const snapshot = getSnapshotForRequest(gameId, demoMode);
-
-    sendJson(response, 200, {
-      gameId,
-      gameStatus: snapshot.gameStatus,
-      quarter: snapshot.quarter,
-      gameClock: snapshot.gameClock,
-      possessionTeam: snapshot.possessionTeam,
-      homeTeam: snapshot.homeTeam,
-      awayTeam: snapshot.awayTeam,
-      updatedAt: new Date().toISOString()
-    });
+    sendJson(response, 200, game);
     return;
   }
 
-  if (playersMatch) {
-    const gameId = playersMatch[1];
+  if (livePlayersMatch) {
+    const players = liveSportsService.getPlayerStats(livePlayersMatch[1], demoMode);
 
-    if (gameId !== DEMO_GAME_ID) {
+    if (!players) {
       sendJson(response, 404, { error: "Unknown gameId" });
       return;
     }
 
-    const names = (url.searchParams.get("names") || "")
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
-    const snapshot = getSnapshotForRequest(gameId, demoMode);
+    sendJson(response, 200, players);
+    return;
+  }
 
-    sendJson(response, 200, {
-      gameId,
-      updatedAt: new Date().toISOString(),
-      players: names.map((playerName) => {
-        const player = snapshot.players[playerName];
+  if (kalshiMatch) {
+    const game = liveSportsService.getLiveGame(kalshiMatch[1], demoMode);
 
-        return {
-          playerName,
-          team: player?.team ?? "NYK",
-          stats: {
-            points: player?.points,
-            rebounds: player?.rebounds
-          }
-        };
-      })
-    });
+    if (!game) {
+      sendJson(response, 404, { error: "Unknown gameId" });
+      return;
+    }
+
+    sendJson(response, 200, kalshiService.getPositionsForGame(kalshiMatch[1], game));
     return;
   }
 

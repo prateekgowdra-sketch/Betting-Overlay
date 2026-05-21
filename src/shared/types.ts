@@ -10,34 +10,11 @@ export interface GameTeam {
   score: number;
 }
 
-export interface GameState {
-  title: string;
-  gameStatus: "upcoming" | "live" | "final";
-  quarter: string;
-  gameClock: string;
-  possession: TeamId;
-  homeTeam: GameTeam;
-  awayTeam: GameTeam;
-}
-
-export interface Position {
+export interface PlayerStat {
   id: string;
-  marketTitle: string;
-  platform: string;
-  side: "YES" | "NO";
-  contracts: number;
-  entryPriceCents: number;
-  currentPriceCents: number;
-  status: PositionStatus;
-  progress: number;
-  whatNeedsToHappen: string;
-}
-
-export interface PlayerProp {
-  id: string;
-  player: string;
+  playerName: string;
   team: TeamId;
-  statLabel: string;
+  statType: "points" | "rebounds";
   direction: "over" | "under";
   current: number;
   target: number;
@@ -47,9 +24,55 @@ export interface PlayerProp {
   whatIsNeeded: string;
 }
 
-export interface DemoState {
-  game: GameState;
-  positions: Position[];
-  playerProps: PlayerProp[];
+export interface MarketLeg {
+  id: string;
+  playerName: string;
+  statType: "points" | "rebounds";
+  direction: "over" | "under";
+  current: number;
+  target: number;
+  unit: string;
+  progress: number;
+  status: PositionStatus;
+  whatNeedsToHappen: string;
+}
+
+export interface KalshiPosition {
+  id: string;
+  marketTitle: string;
+  platform: string;
+  side: "YES" | "NO";
+  contracts: number;
+  entryPriceCents: number;
+  currentPriceCents: number;
+  currentValueCents: number;
+  costBasisCents: number;
+  unrealizedPnLCents: number;
+  status: PositionStatus;
+  progress: number;
+  whatNeedsToHappen: string;
+  leg?: MarketLeg;
+}
+
+export interface GameState {
+  title: string;
+  gameStatus: "upcoming" | "live" | "final";
+  quarter: string;
+  gameClock: string;
+  possession: TeamId;
+  homeTeam: GameTeam;
+  awayTeam: GameTeam;
+  playerStats: PlayerStat[];
   updatedAt: string;
+}
+
+export interface OverlayStatus {
+  state: "loading" | "ready" | "error";
+  message?: string;
+  lastUpdated?: string;
+}
+
+export interface OverlayData {
+  gameState: GameState;
+  positions: KalshiPosition[];
 }
