@@ -67,6 +67,21 @@ function getChipTone(status: PositionStatus): string {
   }
 }
 
+function getStatusBadgeLabel(status: PositionStatus): string {
+  switch (status) {
+    case "won":
+      return "Cashed";
+    case "on-track":
+      return "Alive";
+    case "lost":
+      return "Dead";
+    case "danger":
+      return "Sweating";
+    default:
+      return "Alive";
+  }
+}
+
 function formatPlayerChipLabel(playerStat: PlayerStat): string {
   const shortName = getPlayerShortName(playerStat.playerName);
   const statAbbrev = getStatAbbrev(playerStat.unit);
@@ -82,16 +97,17 @@ function formatPlayerChipLabel(playerStat: PlayerStat): string {
 
 function formatMoneylineChipLabel(position: KalshiPosition, gameState: GameState): string {
   const currentProbability = position.currentPriceCents;
-  const probabilityMove = position.currentPriceCents - position.entryPriceCents;
   const margin = gameState.homeTeam.score - gameState.awayTeam.score;
   const gameContext = margin > 0 ? `up ${margin}` : margin < 0 ? `down ${Math.abs(margin)}` : "tied";
+  return `Knicks ${position.side} ${currentProbability}% · ${gameContext}`;
+}
 
-  if (position.id === "knicks-moneyline") {
-    return `Knicks ${position.side} ${currentProbability}% · ${gameContext}`;
-  }
-
-  const moveText = probabilityMove >= 0 ? `+${probabilityMove}` : `${probabilityMove}`;
-  return `Knicks ${position.side} ${currentProbability}% · ${moveText}`;
+function formatMoneylineCardLabel(position: KalshiPosition, gameState: GameState): string {
+  const move = position.currentPriceCents - position.entryPriceCents;
+  const moveText = move >= 0 ? `+${move}` : `${move}`;
+  const margin = gameState.homeTeam.score - gameState.awayTeam.score;
+  const context = margin > 0 ? `Knicks up ${margin}` : margin < 0 ? `Knicks down ${Math.abs(margin)}` : "Tied";
+  return `Knicks ${position.side} ${position.currentPriceCents}% · entry ${position.entryPriceCents}% · ${moveText} · ${context}`;
 }
 
 function getChipProgress(item: KalshiPosition | PlayerStat): number {
@@ -124,6 +140,14 @@ function renderPositionLabel(position: KalshiPosition, gameState: GameState): st
   }
 
   return position.marketTitle;
+}
+
+function ProgressBar({ progress, color }: { progress: number; color: string }) {
+  return (
+    <div className="klo-progress-track">
+      <div className="klo-progress-fill" style={{ width: `${progress}%`, backgroundColor: color }} />
+    </div>
+  );
 }
 
 export function OverlayApp() {
@@ -218,7 +242,7 @@ export function OverlayApp() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [settings]);
+  }, [settings, overlayData.gameState.updatedAt]);
 
   const gameState = overlayData.gameState;
   const positionChips = useMemo(() => overlayData.positions.slice(0, 2), [overlayData.positions]);
@@ -244,9 +268,27 @@ export function OverlayApp() {
       : gameState.gameStatus === "final"
         ? "Final"
         : "Not started";
+  const fullGameTitle = `${gameState.homeTeam.name} vs ${gameState.awayTeam.name}`;
   const lastUpdated = formatUpdatedTime(overlayStatus.lastUpdated ?? gameState.updatedAt);
   const spread = gameState.homeTeam.score - gameState.awayTeam.score;
   const minimizedLabel = `Kalshi | ${activePositions} active | NYK ${spread >= 0 ? "+" : ""}${spread}`;
+
+  if (uiState.closed) {
+    return (
+      <button
+        className="klo-pill"
+        onClick={() =>
+          void updateUiState({
+            ...uiState,
+            closed: false,
+            minimized: false
+          })
+        }
+      >
+        Open Kalshi Overlay
+      </button>
+    );
+  }
 
   if (uiState.minimized) {
     return (
@@ -264,75 +306,196 @@ export function OverlayApp() {
     );
   }
 
+  const toggleLabel = uiState.viewMode === "ticker" ? "Cards" : "Ticker";
+
   return (
     <>
-      <aside className="klo-top-ticker">
-        <div className="klo-ticker-left">
-          <span className="klo-info-chip klo-brand-chip">Kalshi</span>
-          <span className="klo-info-chip">{scoreline}</span>
-          <span className="klo-info-chip">{clock}</span>
-        </div>
+      {uiState.viewMode === "ticker" ? (
+        <aside className="klo-top-ticker">
+          <div className="klo-ticker-left">
+            <span className="klo-info-chip klo-brand-chip">Kalshi</span>
+            <span className="klo-info-chip">{scoreline}</span>
+            <span className="klo-info-chip">{clock}</span>
+          </div>
 
-        <div className="klo-ticker-center">
-          {positionChips.map((position) => {
-            const chipColor = getChipStatusColor(position.status);
+          <div className="klo-ticker-center">
+            {positionChips.map((position) => {
+              const chipColor = getChipStatusColor(position.status);
 
-            return (
-              <div
-                className={`klo-bet-chip ${getChipTone(position.status)}`}
-                key={position.id}
-                title={position.marketTitle}
+              return (
+                <div
+                  className={`klo-bet-chip ${getChipTone(position.status)}`}
+                  key={position.id}
+                  title={position.marketTitle}
+                >
+                  <span className="klo-chip-label">{renderPositionLabel(position, gameState)}</span>
+                  <span
+                    className="klo-chip-progress"
+                    style={{
+                      width: `${getChipProgress(position)}%`,
+                      backgroundColor: chipColor
+                    }}
+                  />
+                </div>
+              );
+            })}
+
+            {playerChips.map((playerStat) => {
+              const chipColor = getChipStatusColor(playerStat.status);
+
+              return (
+                <div
+                  className={`klo-bet-chip ${getChipTone(playerStat.status)}`}
+                  key={playerStat.id}
+                  title={playerStat.whatIsNeeded}
+                >
+                  <span className="klo-chip-label">{formatPlayerChipLabel(playerStat)}</span>
+                  <span
+                    className="klo-chip-progress"
+                    style={{
+                      width: `${getChipProgress(playerStat)}%`,
+                      backgroundColor: chipColor
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="klo-ticker-right">
+            <button
+              className="klo-view-toggle"
+              onClick={() =>
+                void updateUiState({
+                  ...uiState,
+                  viewMode: "cards"
+                })
+              }
+            >
+              {toggleLabel}
+            </button>
+            <span className="klo-info-chip klo-status-chip">{activePositions} active</span>
+            <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
+            <button
+              className="klo-min-button"
+              onClick={() =>
+                void updateUiState({
+                  ...uiState,
+                  minimized: true
+                })
+              }
+            >
+              Min
+            </button>
+          </div>
+        </aside>
+      ) : (
+        <aside className="klo-card-view">
+          <div className="klo-card-header">
+            <div>
+              <div className="klo-card-brand">Kalshi Live Overlay</div>
+              <div className="klo-card-subtitle">{fullGameTitle}</div>
+            </div>
+            <div className="klo-card-actions">
+              <button
+                className="klo-view-toggle"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    viewMode: "ticker"
+                  })
+                }
               >
-                <span className="klo-chip-label">{renderPositionLabel(position, gameState)}</span>
-                <span
-                  className="klo-chip-progress"
-                  style={{
-                    width: `${getChipProgress(position)}%`,
-                    backgroundColor: chipColor
-                  }}
-                />
-              </div>
-            );
-          })}
-
-          {playerChips.map((playerStat) => {
-            const chipColor = getChipStatusColor(playerStat.status);
-
-            return (
-              <div
-                className={`klo-bet-chip ${getChipTone(playerStat.status)}`}
-                key={playerStat.id}
-                title={playerStat.whatIsNeeded}
+                {toggleLabel}
+              </button>
+              <button
+                className="klo-min-button"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    minimized: true
+                  })
+                }
               >
-                <span className="klo-chip-label">{formatPlayerChipLabel(playerStat)}</span>
-                <span
-                  className="klo-chip-progress"
-                  style={{
-                    width: `${getChipProgress(playerStat)}%`,
-                    backgroundColor: chipColor
-                  }}
-                />
-              </div>
-            );
-          })}
-        </div>
+                Min
+              </button>
+              <button
+                className="klo-min-button"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    closed: true
+                  })
+                }
+              >
+                Close
+              </button>
+            </div>
+          </div>
 
-        <div className="klo-ticker-right">
-          <span className="klo-info-chip klo-status-chip">{activePositions} active</span>
-          <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
-          <button
-            className="klo-min-button"
-            onClick={() =>
-              void updateUiState({
-                ...uiState,
-                minimized: true
-              })
-            }
-          >
-            Min
-          </button>
-        </div>
-      </aside>
+          <section className="klo-scoreboard-card">
+            <div className="klo-scoreboard-row">
+              <span>{gameState.awayTeam.shortName}</span>
+              <strong>{gameState.awayTeam.score}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>{gameState.homeTeam.shortName}</span>
+              <strong>{gameState.homeTeam.score}</strong>
+            </div>
+            <div className="klo-scoreboard-meta">{clock}</div>
+          </section>
+
+          <section className="klo-card-section">
+            <div className="klo-section-title">Kalshi Positions</div>
+            {overlayData.positions.map((position) => {
+              const pnl = position.unrealizedPnLCents >= 0 ? `+${position.unrealizedPnLCents}` : `${position.unrealizedPnLCents}`;
+              const move = position.currentPriceCents - position.entryPriceCents;
+              const moveText = move >= 0 ? `+${move}` : `${move}`;
+
+              return (
+                <article className="klo-position-card" key={position.id}>
+                  <div className="klo-card-title">{position.marketTitle}</div>
+                  <div className="klo-card-meta">
+                    <span>{position.side}</span>
+                    <span>{position.contracts} contracts</span>
+                  </div>
+                  <div className="klo-card-meta">
+                    <span>
+                      {position.id === "knicks-moneyline"
+                        ? formatMoneylineCardLabel(position, gameState)
+                        : `${position.currentPriceCents}% · entry ${position.entryPriceCents}% · ${moveText}`}
+                    </span>
+                  </div>
+                  <div className="klo-card-meta">
+                    <span>P/L {pnl}</span>
+                    <span>{position.whatNeedsToHappen}</span>
+                  </div>
+                  <ProgressBar progress={getChipProgress(position)} color={getChipStatusColor(position.status)} />
+                </article>
+              );
+            })}
+          </section>
+
+          <section className="klo-card-section">
+            <div className="klo-section-title">Player Stat Tracker</div>
+            {gameState.playerStats.map((playerStat) => (
+              <article className="klo-player-card" key={playerStat.id}>
+                <div className="klo-card-meta klo-card-meta-top">
+                  <div className="klo-card-title">{playerStat.playerName}</div>
+                  <span className={`klo-status-badge ${getChipTone(playerStat.status)}`}>
+                    {getStatusBadgeLabel(playerStat.status)}
+                  </span>
+                </div>
+                <div className="klo-card-meta">
+                  <span>{playerStat.statType}</span>
+                  <span>{formatPlayerChipLabel(playerStat)}</span>
+                </div>
+                <ProgressBar progress={getChipProgress(playerStat)} color={getChipStatusColor(playerStat.status)} />
+              </article>
+            ))}
+          </section>
+        </aside>
+      )}
 
       {overlayStatus.state !== "ready" ? (
         <div className={`klo-status-banner ${overlayStatus.state}`}>

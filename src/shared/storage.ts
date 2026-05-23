@@ -1,11 +1,12 @@
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
-const OVERLAY_UI_VERSION = 3;
+const OVERLAY_UI_VERSION = 4;
 
 export interface OverlayUiState {
   version: number;
   minimized: boolean;
   layoutMode: "top-ticker";
+  viewMode: "ticker" | "cards";
   closed: boolean;
 }
 
@@ -18,6 +19,7 @@ const DEFAULT_OVERLAY_UI_STATE: OverlayUiState = {
   version: OVERLAY_UI_VERSION,
   minimized: false,
   layoutMode: "top-ticker",
+  viewMode: "ticker",
   closed: false
 };
 
