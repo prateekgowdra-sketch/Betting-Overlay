@@ -3,6 +3,7 @@ import { ManualParlay, OverlayDataMode } from "./types";
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
 export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
+const PARLAY_API_URL = "http://localhost:3001/api/parlays";
 const OVERLAY_UI_VERSION = 4;
 
 export interface OverlayUiState {
@@ -42,8 +43,87 @@ const DEFAULT_MANUAL_PARLAY: ManualParlay = {
   currentOdds: 410,
   oddsFormat: "american",
   legs: [],
+  createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
 };
+
+async function getLocalManualParlay(): Promise<ManualParlay> {
+  const stored = await chrome.storage.local.get(MANUAL_PARLAY_KEY);
+  const existing = stored[MANUAL_PARLAY_KEY] as ManualParlay | undefined;
+
+  if (existing) {
+    return {
+      ...DEFAULT_MANUAL_PARLAY,
+      ...existing,
+      legs: existing.legs ?? DEFAULT_MANUAL_PARLAY.legs
+    };
+  }
+
+  await chrome.storage.local.set({ [MANUAL_PARLAY_KEY]: DEFAULT_MANUAL_PARLAY });
+  return DEFAULT_MANUAL_PARLAY;
+}
+
+async function saveLocalManualParlay(parlay: ManualParlay): Promise<ManualParlay> {
+  const nextParlay: ManualParlay = {
+    ...DEFAULT_MANUAL_PARLAY,
+    ...parlay,
+    legs: parlay.legs ?? DEFAULT_MANUAL_PARLAY.legs,
+    createdAt: parlay.createdAt ?? DEFAULT_MANUAL_PARLAY.createdAt,
+    updatedAt: new Date().toISOString()
+  };
+
+  await chrome.storage.local.set({
+    [MANUAL_PARLAY_KEY]: nextParlay
+  });
+
+  return nextParlay;
+}
+
+async function listBackendParlays(): Promise<ManualParlay[]> {
+  const response = await fetch(PARLAY_API_URL);
+
+  if (!response.ok) {
+    throw new Error("Backend parlay list unavailable");
+  }
+
+  return (await response.json()) as ManualParlay[];
+}
+
+async function createBackendParlay(parlay: ManualParlay): Promise<ManualParlay> {
+  const response = await fetch(PARLAY_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(parlay)
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create backend parlay");
+  }
+
+  return (await response.json()) as ManualParlay;
+}
+
+async function updateBackendParlay(parlay: ManualParlay): Promise<ManualParlay> {
+  const response = await fetch(`${PARLAY_API_URL}/${encodeURIComponent(parlay.id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(parlay)
+  });
+
+  if (response.status === 404) {
+    return createBackendParlay(parlay);
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to update backend parlay");
+  }
+
+  return (await response.json()) as ManualParlay;
+}
 
 export async function getOverlayUiState(): Promise<OverlayUiState> {
   const stored = await chrome.storage.local.get(OVERLAY_UI_KEY);
@@ -84,26 +164,41 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
 }
 
 export async function getManualParlay(): Promise<ManualParlay> {
-  const stored = await chrome.storage.local.get(MANUAL_PARLAY_KEY);
-  const existing = stored[MANUAL_PARLAY_KEY] as ManualParlay | undefined;
+  const localParlay = await getLocalManualParlay();
 
-  if (existing) {
-    return {
-      ...DEFAULT_MANUAL_PARLAY,
-      ...existing,
-      legs: existing.legs ?? DEFAULT_MANUAL_PARLAY.legs
-    };
+  try {
+    const backendParlays = await listBackendParlays();
+
+    if (backendParlays.length > 0) {
+      const backendParlay: ManualParlay = {
+        ...DEFAULT_MANUAL_PARLAY,
+        ...backendParlays[0],
+        legs: backendParlays[0].legs ?? DEFAULT_MANUAL_PARLAY.legs
+      };
+
+      await saveLocalManualParlay(backendParlay);
+      return backendParlay;
+    }
+
+    if (localParlay.id !== DEFAULT_MANUAL_PARLAY.id || localParlay.legs.length > 0) {
+      const created = await createBackendParlay(localParlay);
+      await saveLocalManualParlay(created);
+      return created;
+    }
+  } catch {
+    return localParlay;
   }
 
-  await chrome.storage.local.set({ [MANUAL_PARLAY_KEY]: DEFAULT_MANUAL_PARLAY });
-  return DEFAULT_MANUAL_PARLAY;
+  return localParlay;
 }
 
 export async function saveManualParlay(parlay: ManualParlay): Promise<void> {
-  await chrome.storage.local.set({
-    [MANUAL_PARLAY_KEY]: {
-      ...parlay,
-      updatedAt: new Date().toISOString()
-    }
-  });
+  const localParlay = await saveLocalManualParlay(parlay);
+
+  try {
+    const backendParlay = await updateBackendParlay(localParlay);
+    await saveLocalManualParlay(backendParlay);
+  } catch {
+    return;
+  }
 }

@@ -186,6 +186,7 @@ export interface ManualParlay {
   currentOdds: number;
   oddsFormat: OddsFormat;
   legs: ManualParlayLeg[];
+  createdAt: string;
   updatedAt: string;
 }
 
