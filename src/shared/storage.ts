@@ -1,5 +1,8 @@
+import { ManualParlay, OverlayDataMode } from "./types";
+
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
+export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
 const OVERLAY_UI_VERSION = 4;
 
 export interface OverlayUiState {
@@ -13,6 +16,7 @@ export interface OverlayUiState {
 export interface AppSettings {
   selectedGameId: string;
   demoMode: boolean;
+  dataMode: OverlayDataMode;
 }
 
 const DEFAULT_OVERLAY_UI_STATE: OverlayUiState = {
@@ -25,7 +29,20 @@ const DEFAULT_OVERLAY_UI_STATE: OverlayUiState = {
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   selectedGameId: "knicks-cavs-demo",
-  demoMode: true
+  demoMode: true,
+  dataMode: "demo"
+};
+
+const DEFAULT_MANUAL_PARLAY: ManualParlay = {
+  id: "manual-parlay-default",
+  parlayName: "My Manual Parlay",
+  amountWagered: 25,
+  estimatedPayout: 112,
+  originalOdds: 350,
+  currentOdds: 410,
+  oddsFormat: "american",
+  legs: [],
+  updatedAt: new Date().toISOString()
 };
 
 export async function getOverlayUiState(): Promise<OverlayUiState> {
@@ -64,4 +81,29 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await chrome.storage.local.set({ [APP_SETTINGS_KEY]: settings });
+}
+
+export async function getManualParlay(): Promise<ManualParlay> {
+  const stored = await chrome.storage.local.get(MANUAL_PARLAY_KEY);
+  const existing = stored[MANUAL_PARLAY_KEY] as ManualParlay | undefined;
+
+  if (existing) {
+    return {
+      ...DEFAULT_MANUAL_PARLAY,
+      ...existing,
+      legs: existing.legs ?? DEFAULT_MANUAL_PARLAY.legs
+    };
+  }
+
+  await chrome.storage.local.set({ [MANUAL_PARLAY_KEY]: DEFAULT_MANUAL_PARLAY });
+  return DEFAULT_MANUAL_PARLAY;
+}
+
+export async function saveManualParlay(parlay: ManualParlay): Promise<void> {
+  await chrome.storage.local.set({
+    [MANUAL_PARLAY_KEY]: {
+      ...parlay,
+      updatedAt: new Date().toISOString()
+    }
+  });
 }

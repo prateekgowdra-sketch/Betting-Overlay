@@ -140,6 +140,10 @@ button {
   grid-template-columns: 1fr;
 }
 
+.field-span-2 {
+  grid-column: span 2;
+}
+
 .field-grid label {
   display: flex;
   flex-direction: column;
@@ -266,4 +270,36 @@ button {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.panel-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.primary-button,
+.inline-button {
+  border: 0;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button {
+  padding: 10px 14px;
+  background: #61ebae;
+  color: #0a1712;
+}
+
+.inline-button {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #eef6ff;
+}
+
+.error-copy {
+  margin-top: 10px;
+  color: #ff9e9e;
+  font-size: 12px;
 }

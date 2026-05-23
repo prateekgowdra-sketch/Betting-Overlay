@@ -5,12 +5,23 @@ import {
   APP_SETTINGS_KEY,
   AppSettings,
   getAppSettings,
+  getManualParlay,
   getOverlayUiState,
+  MANUAL_PARLAY_KEY,
   OVERLAY_UI_KEY,
   OverlayUiState,
   saveOverlayUiState
 } from "../shared/storage";
-import { GameState, KalshiPosition, OverlayData, OverlayStatus, PlayerStat, PositionStatus } from "../shared/types";
+import {
+  GameState,
+  KalshiPosition,
+  ManualParlay,
+  ManualParlayLeg,
+  OverlayData,
+  OverlayStatus,
+  PlayerStat,
+  PositionStatus
+} from "../shared/types";
 
 function formatUpdatedTime(timestamp?: string): string {
   if (!timestamp) {
@@ -29,6 +40,18 @@ function formatUpdatedTime(timestamp?: string): string {
   });
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatAmericanOdds(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value}`;
+}
+
 function getPlayerShortName(playerName: string): string {
   if (playerName === "Karl-Anthony Towns") {
     return "KAT";
@@ -37,8 +60,25 @@ function getPlayerShortName(playerName: string): string {
   return playerName.split(" ").slice(-1)[0];
 }
 
-function getStatAbbrev(unit: string): string {
-  return unit;
+function getStatAbbrev(unitOrType: string): string {
+  switch (unitOrType) {
+    case "points":
+      return "pts";
+    case "rebounds":
+      return "reb";
+    case "assists":
+      return "ast";
+    case "threes_made":
+      return "3PM";
+    case "steals":
+      return "stl";
+    case "blocks":
+      return "blk";
+    case "turnovers":
+      return "to";
+    default:
+      return unitOrType;
+  }
 }
 
 function getChipStatusColor(status: PositionStatus): string {
@@ -142,6 +182,77 @@ function renderPositionLabel(position: KalshiPosition, gameState: GameState): st
   return position.marketTitle;
 }
 
+function getManualLegStatus(leg: ManualParlayLeg): PositionStatus {
+  if (leg.type === "prediction_market") {
+    if (typeof leg.currentPrice === "number" && typeof leg.originalPrice === "number") {
+      if (leg.currentPrice >= 75) {
+        return "on-track";
+      }
+
+      if (leg.currentPrice <= 35) {
+        return "danger";
+      }
+
+      return leg.currentPrice >= leg.originalPrice ? "sweating" : "danger";
+    }
+  }
+
+  return "sweating";
+}
+
+function getManualLegProgress(leg: ManualParlayLeg): number {
+  if (leg.type === "prediction_market" && typeof leg.currentPrice === "number") {
+    return Math.max(0, Math.min(100, leg.currentPrice));
+  }
+
+  return 50;
+}
+
+function formatManualLegChipLabel(leg: ManualParlayLeg): string {
+  switch (leg.type) {
+    case "player_prop":
+      return `${getPlayerShortName(leg.playerName)} ${leg.direction === "over" ? "O" : "U"}${leg.line} ${getStatAbbrev(leg.statType)}`;
+    case "team_moneyline":
+      return `${leg.team} ML${leg.opponent ? ` vs ${leg.opponent}` : ""}`;
+    case "spread":
+      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}`;
+    case "game_total":
+      return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}`;
+    case "prediction_market":
+      return `${leg.side} ${leg.marketTitle}`;
+  }
+}
+
+function formatManualLegDetail(leg: ManualParlayLeg): string {
+  switch (leg.type) {
+    case "player_prop":
+      return `${leg.playerName} ${leg.direction === "over" ? "over" : "under"} ${leg.line} ${getStatAbbrev(leg.statType)}`;
+    case "team_moneyline":
+      return `${leg.team} moneyline${leg.opponent ? ` vs ${leg.opponent}` : ""}`;
+    case "spread":
+      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}`;
+    case "game_total":
+      return `${leg.matchup} ${leg.direction} ${leg.line}`;
+    case "prediction_market":
+      return `${leg.side} · ${leg.marketTitle}`;
+  }
+}
+
+function formatManualLegNeed(leg: ManualParlayLeg): string {
+  switch (leg.type) {
+    case "player_prop":
+      return `Needs ${leg.direction} ${leg.line} ${getStatAbbrev(leg.statType)}`;
+    case "team_moneyline":
+      return `Needs ${leg.team} to win`;
+    case "spread":
+      return `Needs ${leg.team} ${leg.side === "plus" ? "to stay within" : "to cover"} ${leg.line}`;
+    case "game_total":
+      return `Needs the game total to go ${leg.direction} ${leg.line}`;
+    case "prediction_market":
+      return leg.whatNeedsToHappen;
+  }
+}
+
 function ProgressBar({ progress, color }: { progress: number; color: string }) {
   return (
     <div className="klo-progress-track">
@@ -158,22 +269,36 @@ export function OverlayApp() {
   });
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
   const syncInFlightRef = useRef(false);
 
   useEffect(() => {
-    void getOverlayUiState().then(setUiState);
-    void getAppSettings().then(setSettings);
+    void Promise.all([getOverlayUiState(), getAppSettings(), getManualParlay()]).then(
+      ([nextUiState, nextSettings, nextManualParlay]) => {
+        setUiState(nextUiState);
+        setSettings(nextSettings);
+        setManualParlay(nextManualParlay);
+      }
+    );
 
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: string
     ) => {
-      if (areaName === "local" && changes[OVERLAY_UI_KEY]?.newValue) {
+      if (areaName !== "local") {
+        return;
+      }
+
+      if (changes[OVERLAY_UI_KEY]?.newValue) {
         setUiState(changes[OVERLAY_UI_KEY].newValue as OverlayUiState);
       }
 
-      if (areaName === "local" && changes[APP_SETTINGS_KEY]?.newValue) {
+      if (changes[APP_SETTINGS_KEY]?.newValue) {
         setSettings(changes[APP_SETTINGS_KEY].newValue as AppSettings);
+      }
+
+      if (changes[MANUAL_PARLAY_KEY]?.newValue) {
+        setManualParlay(changes[MANUAL_PARLAY_KEY].newValue as ManualParlay);
       }
     };
 
@@ -185,7 +310,7 @@ export function OverlayApp() {
   }, []);
 
   useEffect(() => {
-    if (!settings) {
+    if (!settings || settings.dataMode !== "demo") {
       return;
     }
 
@@ -257,10 +382,11 @@ export function OverlayApp() {
     await saveOverlayUiState(next);
   }
 
-  if (!uiState) {
+  if (!uiState || !settings || !manualParlay) {
     return null;
   }
 
+  const isManualMode = settings.dataMode === "manual";
   const scoreline = `${gameState.awayTeam.shortName} ${gameState.awayTeam.score} - ${gameState.homeTeam.shortName} ${gameState.homeTeam.score}`;
   const clock =
     gameState.gameStatus === "live"
@@ -269,9 +395,13 @@ export function OverlayApp() {
         ? "Final"
         : "Not started";
   const fullGameTitle = `${gameState.homeTeam.name} vs ${gameState.awayTeam.name}`;
-  const lastUpdated = formatUpdatedTime(overlayStatus.lastUpdated ?? gameState.updatedAt);
+  const lastUpdated = formatUpdatedTime(
+    isManualMode ? manualParlay.updatedAt : overlayStatus.lastUpdated ?? gameState.updatedAt
+  );
   const spread = gameState.homeTeam.score - gameState.awayTeam.score;
-  const minimizedLabel = `Kalshi | ${activePositions} active | NYK ${spread >= 0 ? "+" : ""}${spread}`;
+  const minimizedLabel = isManualMode
+    ? `Kalshi | ${manualParlay.legs.length} legs | ${formatAmericanOdds(manualParlay.currentOdds)}`
+    : `Kalshi | ${activePositions} active | NYK ${spread >= 0 ? "+" : ""}${spread}`;
 
   if (uiState.closed) {
     return (
@@ -314,52 +444,89 @@ export function OverlayApp() {
         <aside className="klo-top-ticker">
           <div className="klo-ticker-left">
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
-            <span className="klo-info-chip">{scoreline}</span>
-            <span className="klo-info-chip">{clock}</span>
+            {isManualMode ? (
+              <>
+                <span className="klo-info-chip">{manualParlay.parlayName}</span>
+                <span className="klo-info-chip">
+                  {formatCurrency(manualParlay.amountWagered)} to win {formatCurrency(manualParlay.estimatedPayout)}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="klo-info-chip">{scoreline}</span>
+                <span className="klo-info-chip">{clock}</span>
+              </>
+            )}
           </div>
 
           <div className="klo-ticker-center">
-            {positionChips.map((position) => {
-              const chipColor = getChipStatusColor(position.status);
+            {isManualMode
+              ? manualParlay.legs.map((leg) => {
+                  const legStatus = getManualLegStatus(leg);
+                  const chipColor = getChipStatusColor(legStatus);
 
-              return (
-                <div
-                  className={`klo-bet-chip ${getChipTone(position.status)}`}
-                  key={position.id}
-                  title={position.marketTitle}
-                >
-                  <span className="klo-chip-label">{renderPositionLabel(position, gameState)}</span>
-                  <span
-                    className="klo-chip-progress"
-                    style={{
-                      width: `${getChipProgress(position)}%`,
-                      backgroundColor: chipColor
-                    }}
-                  />
-                </div>
-              );
-            })}
+                  return (
+                    <div
+                      className={`klo-bet-chip ${getChipTone(legStatus)}`}
+                      key={leg.id}
+                      title={formatManualLegNeed(leg)}
+                    >
+                      <span className="klo-chip-label">{formatManualLegChipLabel(leg)}</span>
+                      <span
+                        className="klo-chip-progress"
+                        style={{
+                          width: `${getManualLegProgress(leg)}%`,
+                          backgroundColor: chipColor
+                        }}
+                      />
+                    </div>
+                  );
+                })
+              : (
+                <>
+                  {positionChips.map((position) => {
+                    const chipColor = getChipStatusColor(position.status);
 
-            {playerChips.map((playerStat) => {
-              const chipColor = getChipStatusColor(playerStat.status);
+                    return (
+                      <div
+                        className={`klo-bet-chip ${getChipTone(position.status)}`}
+                        key={position.id}
+                        title={position.marketTitle}
+                      >
+                        <span className="klo-chip-label">{renderPositionLabel(position, gameState)}</span>
+                        <span
+                          className="klo-chip-progress"
+                          style={{
+                            width: `${getChipProgress(position)}%`,
+                            backgroundColor: chipColor
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
 
-              return (
-                <div
-                  className={`klo-bet-chip ${getChipTone(playerStat.status)}`}
-                  key={playerStat.id}
-                  title={playerStat.whatIsNeeded}
-                >
-                  <span className="klo-chip-label">{formatPlayerChipLabel(playerStat)}</span>
-                  <span
-                    className="klo-chip-progress"
-                    style={{
-                      width: `${getChipProgress(playerStat)}%`,
-                      backgroundColor: chipColor
-                    }}
-                  />
-                </div>
-              );
-            })}
+                  {playerChips.map((playerStat) => {
+                    const chipColor = getChipStatusColor(playerStat.status);
+
+                    return (
+                      <div
+                        className={`klo-bet-chip ${getChipTone(playerStat.status)}`}
+                        key={playerStat.id}
+                        title={playerStat.whatIsNeeded}
+                      >
+                        <span className="klo-chip-label">{formatPlayerChipLabel(playerStat)}</span>
+                        <span
+                          className="klo-chip-progress"
+                          style={{
+                            width: `${getChipProgress(playerStat)}%`,
+                            backgroundColor: chipColor
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
           </div>
 
           <div className="klo-ticker-right">
@@ -374,7 +541,9 @@ export function OverlayApp() {
             >
               {toggleLabel}
             </button>
-            <span className="klo-info-chip klo-status-chip">{activePositions} active</span>
+            <span className="klo-info-chip klo-status-chip">
+              {isManualMode ? `${manualParlay.legs.length} legs` : `${activePositions} active`}
+            </span>
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
               className="klo-min-button"
@@ -388,6 +557,104 @@ export function OverlayApp() {
               Min
             </button>
           </div>
+        </aside>
+      ) : isManualMode ? (
+        <aside className="klo-card-view">
+          <div className="klo-card-header">
+            <div>
+              <div className="klo-card-brand">Kalshi Live Overlay</div>
+              <div className="klo-card-subtitle">{manualParlay.parlayName}</div>
+            </div>
+            <div className="klo-card-actions">
+              <button
+                className="klo-view-toggle"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    viewMode: "ticker"
+                  })
+                }
+              >
+                {toggleLabel}
+              </button>
+              <button
+                className="klo-min-button"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    minimized: true
+                  })
+                }
+              >
+                Min
+              </button>
+              <button
+                className="klo-min-button"
+                onClick={() =>
+                  void updateUiState({
+                    ...uiState,
+                    closed: true
+                  })
+                }
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <section className="klo-scoreboard-card">
+            <div className="klo-scoreboard-row">
+              <span>Amount wagered</span>
+              <strong>{formatCurrency(manualParlay.amountWagered)}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Estimated payout</span>
+              <strong>{formatCurrency(manualParlay.estimatedPayout)}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Odds</span>
+              <strong>
+                {formatAmericanOdds(manualParlay.originalOdds)} {"->"} {formatAmericanOdds(manualParlay.currentOdds)}
+              </strong>
+            </div>
+            <div className="klo-scoreboard-meta">Manual parlay mode · updated {lastUpdated}</div>
+          </section>
+
+          <section className="klo-card-section">
+            <div className="klo-section-title">Manual Parlay Legs</div>
+            {manualParlay.legs.length === 0 ? (
+              <article className="klo-position-card">
+                <div className="klo-card-title">No legs entered yet</div>
+                <div className="klo-card-meta">
+                  <span>Open the popup to add player props, moneylines, spreads, totals, or manual Kalshi-style markets.</span>
+                </div>
+              </article>
+            ) : (
+              manualParlay.legs.map((leg) => {
+                const legStatus = getManualLegStatus(leg);
+
+                return (
+                  <article className="klo-position-card" key={leg.id}>
+                    <div className="klo-card-title">{formatManualLegDetail(leg)}</div>
+                    <div className="klo-card-meta">
+                      <span>{formatManualLegNeed(leg)}</span>
+                    </div>
+                    {leg.type === "prediction_market" ? (
+                      <div className="klo-card-meta">
+                        <span>
+                          {leg.side} {typeof leg.currentPrice === "number" ? `${leg.currentPrice}%` : "pending"}
+                        </span>
+                        <span>
+                          entry {typeof leg.originalPrice === "number" ? `${leg.originalPrice}%` : "--"}
+                        </span>
+                      </div>
+                    ) : null}
+                    <ProgressBar progress={getManualLegProgress(leg)} color={getChipStatusColor(legStatus)} />
+                  </article>
+                );
+              })
+            )}
+          </section>
         </aside>
       ) : (
         <aside className="klo-card-view">
@@ -497,7 +764,7 @@ export function OverlayApp() {
         </aside>
       )}
 
-      {overlayStatus.state !== "ready" ? (
+      {overlayStatus.state !== "ready" && !isManualMode ? (
         <div className={`klo-status-banner ${overlayStatus.state}`}>
           {overlayStatus.message ?? (overlayStatus.state === "loading" ? "Loading overlay data..." : "Backend error")}
         </div>

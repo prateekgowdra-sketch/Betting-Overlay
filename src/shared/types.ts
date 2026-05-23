@@ -3,6 +3,10 @@ export type StatType =
   | "points"
   | "rebounds"
   | "assists"
+  | "threes_made"
+  | "steals"
+  | "blocks"
+  | "turnovers"
   | "three_pointers"
   | "passing_yards"
   | "rushing_yards"
@@ -99,4 +103,78 @@ export interface OverlayStatus {
 export interface OverlayData {
   gameState: GameState;
   positions: KalshiPosition[];
+}
+
+export type OverlayDataMode = "demo" | "manual";
+export type OddsFormat = "american";
+export type ManualLegType =
+  | "player_prop"
+  | "team_moneyline"
+  | "spread"
+  | "game_total"
+  | "prediction_market";
+export type ManualDirection = "over" | "under";
+export type ManualPredictionSide = "YES" | "NO";
+export type SpreadSide = "plus" | "minus";
+
+export interface ManualParlayLegBase {
+  id: string;
+  type: ManualLegType;
+}
+
+export interface ManualPlayerPropLeg extends ManualParlayLegBase {
+  type: "player_prop";
+  playerName: string;
+  team: string;
+  statType: "points" | "rebounds" | "assists" | "threes_made" | "steals" | "blocks" | "turnovers";
+  direction: ManualDirection;
+  line: number;
+}
+
+export interface ManualTeamMoneylineLeg extends ManualParlayLegBase {
+  type: "team_moneyline";
+  team: string;
+  opponent?: string;
+}
+
+export interface ManualSpreadLeg extends ManualParlayLegBase {
+  type: "spread";
+  team: string;
+  side: SpreadSide;
+  line: number;
+}
+
+export interface ManualGameTotalLeg extends ManualParlayLegBase {
+  type: "game_total";
+  matchup: string;
+  direction: ManualDirection;
+  line: number;
+}
+
+export interface ManualPredictionMarketLeg extends ManualParlayLegBase {
+  type: "prediction_market";
+  marketTitle: string;
+  side: ManualPredictionSide;
+  originalPrice?: number;
+  currentPrice?: number;
+  whatNeedsToHappen: string;
+}
+
+export type ManualParlayLeg =
+  | ManualPlayerPropLeg
+  | ManualTeamMoneylineLeg
+  | ManualSpreadLeg
+  | ManualGameTotalLeg
+  | ManualPredictionMarketLeg;
+
+export interface ManualParlay {
+  id: string;
+  parlayName: string;
+  amountWagered: number;
+  estimatedPayout: number;
+  originalOdds: number;
+  currentOdds: number;
+  oddsFormat: OddsFormat;
+  legs: ManualParlayLeg[];
+  updatedAt: string;
 }

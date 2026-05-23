@@ -23,6 +23,11 @@ This repository is structured as a serious MVP rather than a throwaway prototype
   - what still needs to happen
 - Player stat tracker cards for demo market legs
 - Auto-updating demo mode that simulates a live backend feed
+- Manual parlay entry mode with persistent locally saved legs
+- Toggle between demo feed mode and manual parlay mode from the popup
+- Two overlay layouts:
+  - top ticker mode
+  - detailed card mode
 - Polling architecture between the extension and local backend every 15 seconds
 - Loading and error states in the overlay
 - Backend service split for future sports API and Kalshi API replacement
@@ -104,6 +109,22 @@ The current MVP ships with an auto-updating demo mode designed to simulate the f
 - Kalshi-style position values update based on the latest mock game context
 
 This gives the project a realistic interaction model without embedding real provider credentials or depending on unstable third-party APIs during MVP development.
+
+## Manual Parlay Mode
+
+The extension also supports a fully local manual parlay workflow for demos and UI testing.
+
+- Add a parlay name, wager, payout, and odds from the popup
+- Add multiple manual legs:
+  - player props
+  - team moneylines
+  - spreads
+  - game totals
+  - Kalshi-style manual prediction market legs
+- Switch the popup's **Overlay mode** from `Demo mode` to `Manual parlay mode`
+- The overlay will render your saved parlay instead of the Knicks vs Cavaliers demo feed
+
+Manual parlay entries are stored in `chrome.storage.local`, so they persist across page refreshes and extension reloads.
 
 ## Planned Future Features
 
