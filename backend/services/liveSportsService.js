@@ -1,88 +1,45 @@
-import { DEMO_GAME_ID, SUPPORTED_GAMES, demoTimeline } from "../data/demoTimeline.js";
+import { MockSportsDataProvider } from "./providers/mockSportsDataProvider.js";
+import { RealSportsDataProvider } from "./providers/realSportsDataProvider.js";
+import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
 
-const sequenceIndexByGame = new Map();
-const activeSnapshotByGame = new Map();
-const SNAPSHOT_WINDOW_MS = 5000;
+const mockProvider = new MockSportsDataProvider();
+const PROVIDERS = {
+  mock: mockProvider,
+  real: new RealSportsDataProvider(),
+  the_odds_api: new TheOddsApiProvider({ fallbackProvider: mockProvider })
+};
 
-function getCurrentSnapshot(gameId) {
-  const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
-  return demoTimeline[Math.min(currentIndex, demoTimeline.length - 1)];
-}
+function resolveProvider() {
+  const requestedProvider = (process.env.SPORTS_DATA_PROVIDER || "mock").toLowerCase();
 
-function advanceSnapshot(gameId, demoMode) {
-  const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
-
-  if (demoMode && currentIndex < demoTimeline.length - 1) {
-    sequenceIndexByGame.set(gameId, currentIndex + 1);
-    return;
+  if (!PROVIDERS[requestedProvider]) {
+    console.warn(
+      `[liveSports] Unknown SPORTS_DATA_PROVIDER "${requestedProvider}". Falling back to mock provider.`
+    );
   }
 
-  sequenceIndexByGame.set(gameId, currentIndex);
-}
-
-function getSnapshotForRequest(gameId, demoMode) {
-  const existingWindow = activeSnapshotByGame.get(gameId);
-
-  if (existingWindow && existingWindow.expiresAt > Date.now()) {
-    return existingWindow.snapshot;
-  }
-
-  const snapshot = getCurrentSnapshot(gameId);
-
-  activeSnapshotByGame.set(gameId, {
-    snapshot,
-    expiresAt: Date.now() + SNAPSHOT_WINDOW_MS
-  });
-
-  advanceSnapshot(gameId, demoMode);
-  return snapshot;
+  return PROVIDERS[requestedProvider] ?? PROVIDERS.mock;
 }
 
 class LiveSportsService {
+  getProvider() {
+    return resolveProvider();
+  }
+
+  getProviderName() {
+    return this.getProvider().getName();
+  }
+
   getSupportedGames() {
-    return SUPPORTED_GAMES;
+    return this.getProvider().getSupportedGames();
   }
 
-  getLiveGame(gameId, demoMode) {
-    if (gameId !== DEMO_GAME_ID) {
-      return null;
-    }
-
-    const snapshot = getSnapshotForRequest(gameId, demoMode);
-
-    return {
-      gameId,
-      title: snapshot.title,
-      gameStatus: snapshot.gameStatus,
-      quarter: snapshot.quarter,
-      gameClock: snapshot.gameClock,
-      possessionTeam: snapshot.possessionTeam,
-      homeTeam: snapshot.homeTeam,
-      awayTeam: snapshot.awayTeam,
-      playerStats: snapshot.playerStats,
-      updatedAt: new Date().toISOString()
-    };
+  async getLiveGame(gameId, demoMode) {
+    return this.getProvider().getLiveGame(gameId, demoMode);
   }
 
-  getPlayerStats(gameId, demoMode) {
-    const game = this.getLiveGame(gameId, demoMode);
-
-    if (!game) {
-      return null;
-    }
-
-    return {
-      gameId,
-      updatedAt: game.updatedAt,
-      players: game.playerStats.map((playerStat) => ({
-        playerName: playerStat.playerName,
-        team: playerStat.team,
-        stats: {
-          points: playerStat.statType === "points" ? playerStat.current : undefined,
-          rebounds: playerStat.statType === "rebounds" ? playerStat.current : undefined
-        }
-      }))
-    };
+  async getPlayerStats(gameId, demoMode) {
+    return this.getProvider().getPlayerStats(gameId, demoMode);
   }
 }
 

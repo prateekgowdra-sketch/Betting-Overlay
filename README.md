@@ -46,6 +46,7 @@ The current MVP follows a clean three-layer structure:
    - Serves live game state and Kalshi-style positions
    - Uses mock services today
    - Is designed to later connect to real NBA and Kalshi APIs
+   - Uses a provider-based sports data layer with `mock` as the default provider
 
 3. Shared Types
    - Defines the core overlay domain model:
@@ -110,6 +111,39 @@ The current MVP ships with an auto-updating demo mode designed to simulate the f
 
 This gives the project a realistic interaction model without embedding real provider credentials or depending on unstable third-party APIs during MVP development.
 
+## Sports Data Provider
+
+The backend now uses a provider-based live sports service structure.
+
+- `SPORTS_DATA_PROVIDER=mock` is the default and keeps the current demo working
+- `SPORTS_DATA_PROVIDER=the_odds_api` enables a live scores provider backed by The Odds API
+- If `SPORTS_DATA_PROVIDER` is missing or invalid, the backend falls back to `mock`
+- If `THE_ODDS_API_KEY` is missing while `SPORTS_DATA_PROVIDER=the_odds_api`, the backend logs a safe warning and falls back to `mock`
+
+Current provider files:
+- [backend/services/providers/mockSportsDataProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/mockSportsDataProvider.js)
+- [backend/services/providers/theOddsApiProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/theOddsApiProvider.js)
+- [backend/services/providers/realSportsDataProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/realSportsDataProvider.js)
+
+The The Odds API provider reads backend-only environment variables:
+- `THE_ODDS_SPORT_KEY` defaults to `basketball_nba`
+- `THE_ODDS_API_KEY`
+- `SPORTSDATA_API_KEY`
+
+Example backend `.env`:
+
+```bash
+SPORTS_DATA_PROVIDER=the_odds_api
+THE_ODDS_SPORT_KEY=basketball_nba
+THE_ODDS_API_KEY=your_key_here
+```
+
+The current live scores provider normalizes team-level game state and scores through the existing backend routes:
+- `GET /api/live/game/:gameId`
+- `GET /api/live/players/:gameId`
+
+Player-level stats are not provided by The Odds API scores endpoint, so player prop tracking will remain unavailable until a separate player-stats provider is added.
+
 ## Manual Parlay Mode
 
 The extension also supports a fully local manual parlay workflow for demos and UI testing.
@@ -133,6 +167,54 @@ The extension also supports a fully local manual parlay workflow for demos and U
   - live leg progress for matched player props, moneylines, spreads, and totals
 
 Manual parlay entries are stored in `chrome.storage.local`, so they persist across page refreshes and extension reloads.
+If the local backend is running, the extension will also try to persist manual parlays to a simple backend JSON file first and fall back to `chrome.storage.local` if the backend is unavailable.
+
+## Kalshi Backend Mode
+
+The backend now has a read-only Kalshi client layer while keeping `mock` as the default.
+
+- `KALSHI_MODE=mock` keeps the current mock Kalshi-style demo working
+- `KALSHI_MODE=real` enables authenticated backend-only Kalshi reads
+- `KALSHI_ENV=demo` uses Kalshi's demo Trade API
+- `KALSHI_ENV=production` uses Kalshi's production Trade API
+
+Backend-only Kalshi environment variables:
+- `KALSHI_API_KEY_ID`
+- `KALSHI_PRIVATE_KEY_PATH`
+
+These credentials never go to the extension frontend.
+
+Available backend Kalshi routes:
+- `GET /api/kalshi/balance`
+- `GET /api/kalshi/positions`
+- `GET /api/kalshi/market/:ticker`
+- `GET /api/kalshi/positions/:gameId`
+
+Safe demo setup example:
+
+```bash
+KALSHI_MODE=mock
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=
+KALSHI_PRIVATE_KEY_PATH=
+```
+
+Safe real demo setup example:
+
+```bash
+KALSHI_MODE=real
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=your_demo_key_id
+KALSHI_PRIVATE_KEY_PATH=backend/secrets/kalshi-demo.key
+```
+
+The real Kalshi integration is intentionally read-only for now:
+- balance lookup
+- position lookup
+- market lookup
+- market list support in the backend client
+
+No order placement or trading endpoints are implemented.
 
 ## Planned Future Features
 
