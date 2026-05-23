@@ -115,6 +115,7 @@ This gives the project a realistic interaction model without embedding real prov
 The extension also supports a fully local manual parlay workflow for demos and UI testing.
 
 - Add a parlay name, wager, payout, and odds from the popup
+- Track American odds movement at the parlay level and per-leg level
 - Add multiple manual legs:
   - player props
   - team moneylines
@@ -123,6 +124,11 @@ The extension also supports a fully local manual parlay workflow for demos and U
   - Kalshi-style manual prediction market legs
 - Switch the popup's **Overlay mode** from `Demo mode` to `Manual parlay mode`
 - The overlay will render your saved parlay instead of the Knicks vs Cavaliers demo feed
+- The ticker and card views will show:
+  - wager and payout summary
+  - original odds vs current odds
+  - implied probability movement
+  - whether payout improved or worsened for the bettor
 
 Manual parlay entries are stored in `chrome.storage.local`, so they persist across page refreshes and extension reloads.
 

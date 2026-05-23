@@ -22,6 +22,12 @@ import {
   PlayerStat,
   PositionStatus
 } from "../shared/types";
+import {
+  americanOddsToImpliedProbability,
+  formatAmericanOdds,
+  formatCurrency,
+  getOddsMovement
+} from "../shared/odds";
 
 function formatUpdatedTime(timestamp?: string): string {
   if (!timestamp) {
@@ -38,18 +44,6 @@ function formatUpdatedTime(timestamp?: string): string {
     hour: "numeric",
     minute: "2-digit"
   });
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(value);
-}
-
-function formatAmericanOdds(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value}`;
 }
 
 function getPlayerShortName(playerName: string): string {
@@ -209,17 +203,22 @@ function getManualLegProgress(leg: ManualParlayLeg): number {
 }
 
 function formatManualLegChipLabel(leg: ManualParlayLeg): string {
+  const oddsText =
+    typeof leg.originalOdds === "number" && typeof leg.currentOdds === "number"
+      ? ` | Odds ${formatAmericanOdds(leg.originalOdds)} -> ${formatAmericanOdds(leg.currentOdds)}`
+      : "";
+
   switch (leg.type) {
     case "player_prop":
-      return `${getPlayerShortName(leg.playerName)} ${leg.direction === "over" ? "O" : "U"}${leg.line} ${getStatAbbrev(leg.statType)}`;
+      return `${getPlayerShortName(leg.playerName)} ${leg.direction === "over" ? "O" : "U"}${leg.line} ${getStatAbbrev(leg.statType)}${oddsText}`;
     case "team_moneyline":
-      return `${leg.team} ML${leg.opponent ? ` vs ${leg.opponent}` : ""}`;
+      return `${leg.team} ML${leg.opponent ? ` vs ${leg.opponent}` : ""}${oddsText}`;
     case "spread":
-      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}`;
+      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}${oddsText}`;
     case "game_total":
-      return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}`;
+      return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}${oddsText}`;
     case "prediction_market":
-      return `${leg.side} ${leg.marketTitle}`;
+      return `${leg.side} ${leg.marketTitle}${oddsText}`;
   }
 }
 
@@ -251,6 +250,36 @@ function formatManualLegNeed(leg: ManualParlayLeg): string {
     case "prediction_market":
       return leg.whatNeedsToHappen;
   }
+}
+
+function directionArrow(direction: "up" | "down" | "same"): string {
+  switch (direction) {
+    case "up":
+      return "↑";
+    case "down":
+      return "↓";
+    default:
+      return "→";
+  }
+}
+
+function formatParlayOddsTicker(manualParlay: ManualParlay): string {
+  const movement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
+  return `Parlay: ${formatCurrency(manualParlay.amountWagered)} -> ${formatCurrency(manualParlay.estimatedPayout)} | Odds ${formatAmericanOdds(manualParlay.originalOdds)} -> ${formatAmericanOdds(manualParlay.currentOdds)}`;
+}
+
+function formatParlayOddsTickerDetail(manualParlay: ManualParlay): string {
+  const movement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
+  return `Chance ${directionArrow(movement.probabilityDirection)} | Payout ${movement.payoutDirection}`;
+}
+
+function formatManualLegOddsTicker(leg: ManualParlayLeg): string | null {
+  if (typeof leg.originalOdds !== "number" || typeof leg.currentOdds !== "number") {
+    return null;
+  }
+
+  const movement = getOddsMovement(leg.originalOdds, leg.currentOdds);
+  return `Odds ${formatAmericanOdds(leg.originalOdds)} -> ${formatAmericanOdds(leg.currentOdds)} | Chance ${directionArrow(movement.probabilityDirection)}`;
 }
 
 function ProgressBar({ progress, color }: { progress: number; color: string }) {
@@ -402,6 +431,9 @@ export function OverlayApp() {
   const minimizedLabel = isManualMode
     ? `Kalshi | ${manualParlay.legs.length} legs | ${formatAmericanOdds(manualParlay.currentOdds)}`
     : `Kalshi | ${activePositions} active | NYK ${spread >= 0 ? "+" : ""}${spread}`;
+  const parlayOddsMovement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
+  const compactParlaySummary = formatParlayOddsTicker(manualParlay);
+  const compactParlayDetail = formatParlayOddsTickerDetail(manualParlay);
 
   if (uiState.closed) {
     return (
@@ -445,12 +477,7 @@ export function OverlayApp() {
           <div className="klo-ticker-left">
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
             {isManualMode ? (
-              <>
-                <span className="klo-info-chip">{manualParlay.parlayName}</span>
-                <span className="klo-info-chip">
-                  {formatCurrency(manualParlay.amountWagered)} to win {formatCurrency(manualParlay.estimatedPayout)}
-                </span>
-              </>
+              <span className="klo-info-chip klo-title-chip">{manualParlay.parlayName}</span>
             ) : (
               <>
                 <span className="klo-info-chip">{scoreline}</span>
@@ -461,27 +488,39 @@ export function OverlayApp() {
 
           <div className="klo-ticker-center">
             {isManualMode
-              ? manualParlay.legs.map((leg) => {
-                  const legStatus = getManualLegStatus(leg);
-                  const chipColor = getChipStatusColor(legStatus);
+              ? (
+                <>
+                  <div
+                    className="klo-info-chip klo-parlay-summary-chip"
+                    title={`${compactParlaySummary} | ${compactParlayDetail}`}
+                  >
+                    {compactParlaySummary}
+                  </div>
 
-                  return (
-                    <div
-                      className={`klo-bet-chip ${getChipTone(legStatus)}`}
-                      key={leg.id}
-                      title={formatManualLegNeed(leg)}
-                    >
-                      <span className="klo-chip-label">{formatManualLegChipLabel(leg)}</span>
-                      <span
-                        className="klo-chip-progress"
-                        style={{
-                          width: `${getManualLegProgress(leg)}%`,
-                          backgroundColor: chipColor
-                        }}
-                      />
-                    </div>
-                  );
-                })
+                  {manualParlay.legs.map((leg) => {
+                    const legStatus = getManualLegStatus(leg);
+                    const chipColor = getChipStatusColor(legStatus);
+                    const oddsTicker = formatManualLegOddsTicker(leg);
+
+                    return (
+                      <div
+                        className={`klo-bet-chip ${getChipTone(legStatus)}`}
+                        key={leg.id}
+                        title={oddsTicker ? `${formatManualLegNeed(leg)} | ${oddsTicker}` : formatManualLegNeed(leg)}
+                      >
+                        <span className="klo-chip-label">{oddsTicker ? `${formatManualLegChipLabel(leg)} | ${oddsTicker}` : formatManualLegChipLabel(leg)}</span>
+                        <span
+                          className="klo-chip-progress"
+                          style={{
+                            width: `${getManualLegProgress(leg)}%`,
+                            backgroundColor: chipColor
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )
               : (
                 <>
                   {positionChips.map((position) => {
@@ -617,6 +656,18 @@ export function OverlayApp() {
                 {formatAmericanOdds(manualParlay.originalOdds)} {"->"} {formatAmericanOdds(manualParlay.currentOdds)}
               </strong>
             </div>
+            <div className="klo-scoreboard-row">
+              <span>Implied chance</span>
+              <strong>
+                {(americanOddsToImpliedProbability(manualParlay.originalOdds) * 100).toFixed(1)}% {"->"} {(americanOddsToImpliedProbability(manualParlay.currentOdds) * 100).toFixed(1)}%
+              </strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Movement</span>
+              <strong>
+                Chance {directionArrow(parlayOddsMovement.probabilityDirection)} · Payout {parlayOddsMovement.payoutDirection}
+              </strong>
+            </div>
             <div className="klo-scoreboard-meta">Manual parlay mode · updated {lastUpdated}</div>
           </section>
 
@@ -632,6 +683,10 @@ export function OverlayApp() {
             ) : (
               manualParlay.legs.map((leg) => {
                 const legStatus = getManualLegStatus(leg);
+                const legOddsMovement =
+                  typeof leg.originalOdds === "number" && typeof leg.currentOdds === "number"
+                    ? getOddsMovement(leg.originalOdds, leg.currentOdds)
+                    : null;
 
                 return (
                   <article className="klo-position-card" key={leg.id}>
@@ -639,6 +694,22 @@ export function OverlayApp() {
                     <div className="klo-card-meta">
                       <span>{formatManualLegNeed(leg)}</span>
                     </div>
+                    {legOddsMovement ? (
+                      <div className="klo-card-meta">
+                        <span>
+                          Odds {formatAmericanOdds(leg.originalOdds!)} {"->"} {formatAmericanOdds(leg.currentOdds!)}
+                        </span>
+                        <span>Chance {directionArrow(legOddsMovement.probabilityDirection)}</span>
+                      </div>
+                    ) : null}
+                    {legOddsMovement ? (
+                      <div className="klo-card-meta">
+                        <span>
+                          {(legOddsMovement.originalImpliedProbability * 100).toFixed(1)}% {"->"} {(legOddsMovement.currentImpliedProbability * 100).toFixed(1)}%
+                        </span>
+                        <span>Payout {legOddsMovement.payoutDirection}</span>
+                      </div>
+                    ) : null}
                     {leg.type === "prediction_market" ? (
                       <div className="klo-card-meta">
                         <span>

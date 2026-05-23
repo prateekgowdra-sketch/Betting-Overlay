@@ -1,12 +1,7 @@
+import { formatCurrency } from "./odds";
 import { PositionStatus } from "./types";
 
-export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(value);
-}
+export { formatCurrency };
 
 export function statusLabel(status: PositionStatus): string {
   switch (status) {

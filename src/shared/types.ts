@@ -107,6 +107,12 @@ export interface OverlayData {
 
 export type OverlayDataMode = "demo" | "manual";
 export type OddsFormat = "american";
+export interface OddsMovement {
+  originalImpliedProbability: number;
+  currentImpliedProbability: number;
+  probabilityDirection: "up" | "down" | "same";
+  payoutDirection: "better" | "worse" | "same";
+}
 export type ManualLegType =
   | "player_prop"
   | "team_moneyline"
@@ -120,6 +126,8 @@ export type SpreadSide = "plus" | "minus";
 export interface ManualParlayLegBase {
   id: string;
   type: ManualLegType;
+  originalOdds?: number;
+  currentOdds?: number;
 }
 
 export interface ManualPlayerPropLeg extends ManualParlayLegBase {

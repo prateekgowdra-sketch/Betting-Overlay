@@ -15,6 +15,7 @@ import {
   SpreadSide
 } from "../shared/types";
 import { backendApi } from "../services/backendApi";
+import { formatAmericanOdds } from "../shared/odds";
 
 type LegDraft = {
   type: ManualLegType;
@@ -28,6 +29,8 @@ type LegDraft = {
   matchup: string;
   marketTitle: string;
   predictionSide: ManualPredictionSide;
+  originalOdds: string;
+  currentOdds: string;
   originalPrice: string;
   currentPrice: string;
   whatNeedsToHappen: string;
@@ -45,6 +48,8 @@ const DEFAULT_DRAFT: LegDraft = {
   matchup: "",
   marketTitle: "",
   predictionSide: "YES",
+  originalOdds: "",
+  currentOdds: "",
   originalPrice: "",
   currentPrice: "",
   whatNeedsToHappen: ""
@@ -74,12 +79,14 @@ function legSummary(leg: ManualParlayLeg): string {
     case "game_total":
       return `${leg.matchup} ${leg.direction} ${leg.line}`;
     case "prediction_market":
-      return `${leg.side} ${leg.marketTitle}`;
+      return `${leg.side} ${leg.marketTitle}${typeof leg.currentOdds === "number" ? ` · ${formatAmericanOdds(leg.currentOdds)}` : ""}`;
   }
 }
 
 function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
   const line = Number(draft.line);
+  const originalOdds = draft.originalOdds === "" ? undefined : Number(draft.originalOdds);
+  const currentOdds = draft.currentOdds === "" ? undefined : Number(draft.currentOdds);
   const originalPrice = draft.originalPrice === "" ? undefined : Number(draft.originalPrice);
   const currentPrice = draft.currentPrice === "" ? undefined : Number(draft.currentPrice);
 
@@ -96,7 +103,9 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         team: draft.team.trim(),
         statType: draft.statType,
         direction: draft.direction,
-        line
+        line,
+        originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
+        currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds
       };
     case "team_moneyline":
       if (!draft.team) {
@@ -107,7 +116,9 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         id: createLegId(),
         type: "team_moneyline",
         team: draft.team.trim(),
-        opponent: draft.opponent.trim() || undefined
+        opponent: draft.opponent.trim() || undefined,
+        originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
+        currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds
       };
     case "spread":
       if (!draft.team || Number.isNaN(line)) {
@@ -119,7 +130,9 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         type: "spread",
         team: draft.team.trim(),
         side: draft.spreadSide,
-        line
+        line,
+        originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
+        currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds
       };
     case "game_total":
       if (!draft.matchup || Number.isNaN(line)) {
@@ -131,7 +144,9 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         type: "game_total",
         matchup: draft.matchup.trim(),
         direction: draft.direction,
-        line
+        line,
+        originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
+        currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds
       };
     case "prediction_market":
       if (!draft.marketTitle || !draft.whatNeedsToHappen) {
@@ -143,6 +158,8 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         type: "prediction_market",
         marketTitle: draft.marketTitle.trim(),
         side: draft.predictionSide,
+        originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
+        currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds,
         originalPrice: Number.isNaN(originalPrice ?? Number.NaN) ? undefined : originalPrice,
         currentPrice: Number.isNaN(currentPrice ?? Number.NaN) ? undefined : currentPrice,
         whatNeedsToHappen: draft.whatNeedsToHappen.trim()
@@ -517,6 +534,15 @@ export function PopupApp() {
               </label>
             </>
           ) : null}
+
+          <label>
+            Original odds
+            <input type="number" value={draft.originalOdds} onChange={(event) => setDraft({ ...draft, originalOdds: event.target.value })} />
+          </label>
+          <label>
+            Current odds
+            <input type="number" value={draft.currentOdds} onChange={(event) => setDraft({ ...draft, currentOdds: event.target.value })} />
+          </label>
         </div>
 
         {draftError ? <div className="error-copy">{draftError}</div> : null}

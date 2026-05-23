@@ -36,8 +36,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
   min-width: 0;
+}
+
+.klo-ticker-left {
+  flex: 0 1 auto;
+}
+
+.klo-ticker-right {
+  flex: 0 0 auto;
 }
 
 .klo-ticker-center {
@@ -63,7 +70,7 @@
 .klo-view-toggle,
 .klo-pill {
   height: 34px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -73,7 +80,7 @@
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
 }
 
 .klo-info-chip {
@@ -87,6 +94,16 @@
   color: #70e4bf;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.klo-title-chip {
+  max-width: 180px;
+}
+
+.klo-parlay-summary-chip {
+  max-width: min(460px, 42vw);
+  flex: 1 1 320px;
 }
 
 .klo-bet-chip {
@@ -315,6 +332,15 @@
   .klo-pill {
     max-width: 200px;
     font-size: 12px;
+  }
+
+  .klo-title-chip {
+    max-width: 140px;
+  }
+
+  .klo-parlay-summary-chip {
+    max-width: min(320px, 46vw);
+    flex-basis: 240px;
   }
 
   .klo-updated-chip {
