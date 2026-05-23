@@ -1,13 +1,12 @@
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
+const OVERLAY_UI_VERSION = 3;
 
 export interface OverlayUiState {
+  version: number;
   minimized: boolean;
+  layoutMode: "top-ticker";
   closed: boolean;
-  position: {
-    x: number;
-    y: number;
-  };
 }
 
 export interface AppSettings {
@@ -16,12 +15,10 @@ export interface AppSettings {
 }
 
 const DEFAULT_OVERLAY_UI_STATE: OverlayUiState = {
+  version: OVERLAY_UI_VERSION,
   minimized: false,
-  closed: false,
-  position: {
-    x: 18,
-    y: 18
-  }
+  layoutMode: "top-ticker",
+  closed: false
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -33,14 +30,10 @@ export async function getOverlayUiState(): Promise<OverlayUiState> {
   const stored = await chrome.storage.local.get(OVERLAY_UI_KEY);
   const existing = stored[OVERLAY_UI_KEY] as OverlayUiState | undefined;
 
-  if (existing) {
+  if (existing && existing.version === OVERLAY_UI_VERSION) {
     return {
       ...DEFAULT_OVERLAY_UI_STATE,
-      ...existing,
-      position: {
-        ...DEFAULT_OVERLAY_UI_STATE.position,
-        ...existing.position
-      }
+      ...existing
     };
   }
 
