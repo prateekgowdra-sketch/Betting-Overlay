@@ -122,6 +122,7 @@ The extension also supports a fully local manual parlay workflow for demos and U
   - spreads
   - game totals
   - Kalshi-style manual prediction market legs
+- When possible, manual legs are matched against the existing mock Knicks vs Cavaliers live game feed for live progress
 - Switch the popup's **Overlay mode** from `Demo mode` to `Manual parlay mode`
 - The overlay will render your saved parlay instead of the Knicks vs Cavaliers demo feed
 - The ticker and card views will show:
@@ -129,6 +130,7 @@ The extension also supports a fully local manual parlay workflow for demos and U
   - original odds vs current odds
   - implied probability movement
   - whether payout improved or worsened for the bettor
+  - live leg progress for matched player props, moneylines, spreads, and totals
 
 Manual parlay entries are stored in `chrome.storage.local`, so they persist across page refreshes and extension reloads.
 

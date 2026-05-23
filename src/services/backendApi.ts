@@ -1,6 +1,7 @@
 import {
   BackendGameResponse,
-  BackendKalshiPositionResponse
+  BackendKalshiPositionResponse,
+  BackendPlayersResponse
 } from "../shared/overlayState";
 
 export interface SupportedGame {
@@ -46,6 +47,16 @@ class BackendApi {
     }
 
     return (await response.json()) as BackendKalshiPositionResponse;
+  }
+
+  async getPlayerStats(gameId: string): Promise<BackendPlayersResponse> {
+    const response = await fetch(this.buildUrl(`/live/players/${gameId}`));
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch player stats for ${gameId}`);
+    }
+
+    return (await response.json()) as BackendPlayersResponse;
   }
 
   private buildUrl(path: string): string {

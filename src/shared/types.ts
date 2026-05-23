@@ -105,6 +105,8 @@ export interface OverlayData {
   positions: KalshiPosition[];
 }
 
+export type ManualLegLiveStatus = "hit" | "live" | "behind" | "unavailable";
+
 export type OverlayDataMode = "demo" | "manual";
 export type OddsFormat = "american";
 export interface OddsMovement {
@@ -185,4 +187,16 @@ export interface ManualParlay {
   oddsFormat: OddsFormat;
   legs: ManualParlayLeg[];
   updatedAt: string;
+}
+
+export interface ManualLegOverlayChip {
+  id: string;
+  label: string;
+  type: ManualLegType;
+  current?: number;
+  target?: number;
+  progressPercent: number;
+  status: ManualLegLiveStatus;
+  needsText: string;
+  oddsText?: string;
 }

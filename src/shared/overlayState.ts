@@ -62,6 +62,24 @@ export interface BackendKalshiPositionResponse {
   }>;
 }
 
+export interface BackendPlayersResponse {
+  gameId: string;
+  updatedAt: string;
+  players: Array<{
+    playerName: string;
+    team: TeamId;
+    stats: {
+      points?: number;
+      rebounds?: number;
+      assists?: number;
+      threes_made?: number;
+      steals?: number;
+      blocks?: number;
+      turnovers?: number;
+    };
+  }>;
+}
+
 function clampProgress(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }

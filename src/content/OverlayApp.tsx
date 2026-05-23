@@ -15,6 +15,7 @@ import {
 import {
   GameState,
   KalshiPosition,
+  ManualLegOverlayChip,
   ManualParlay,
   ManualParlayLeg,
   OverlayData,
@@ -28,6 +29,8 @@ import {
   formatCurrency,
   getOddsMovement
 } from "../shared/odds";
+import { BackendPlayersResponse } from "../shared/overlayState";
+import { buildManualLegOverlayChips } from "../shared/manualLegMatcher";
 
 function formatUpdatedTime(timestamp?: string): string {
   if (!timestamp) {
@@ -113,6 +116,45 @@ function getStatusBadgeLabel(status: PositionStatus): string {
       return "Sweating";
     default:
       return "Alive";
+  }
+}
+
+function getManualChipTone(status: ManualLegOverlayChip["status"]): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
+  switch (status) {
+    case "hit":
+      return "is-good";
+    case "behind":
+      return "is-bad";
+    case "unavailable":
+      return "is-unavailable";
+    default:
+      return "is-live";
+  }
+}
+
+function getManualChipColor(status: ManualLegOverlayChip["status"]): string {
+  switch (status) {
+    case "hit":
+      return "#61ebae";
+    case "behind":
+      return "#f15b5b";
+    case "unavailable":
+      return "#95a7bb";
+    default:
+      return "#f7c948";
+  }
+}
+
+function getManualChipBadgeLabel(status: ManualLegOverlayChip["status"]): string {
+  switch (status) {
+    case "hit":
+      return "Hit";
+    case "behind":
+      return "Watch";
+    case "unavailable":
+      return "Unavailable";
+    default:
+      return "Live";
   }
 }
 
@@ -299,6 +341,7 @@ export function OverlayApp() {
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
+  const [livePlayers, setLivePlayers] = useState<BackendPlayersResponse["players"]>([]);
   const syncInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -339,7 +382,7 @@ export function OverlayApp() {
   }, []);
 
   useEffect(() => {
-    if (!settings || settings.dataMode !== "demo") {
+    if (!settings) {
       return;
     }
 
@@ -357,9 +400,10 @@ export function OverlayApp() {
       );
 
       try {
-        const [gameStateResponse, kalshiPositionsResponse] = await Promise.all([
+        const [gameStateResponse, kalshiPositionsResponse, playerStatsResponse] = await Promise.all([
           backendApi.getGameState(settings.selectedGameId),
-          backendApi.getKalshiPositions(settings.selectedGameId)
+          backendApi.getKalshiPositions(settings.selectedGameId),
+          backendApi.getPlayerStats(settings.selectedGameId)
         ]);
 
         const nextOverlayData = mapBackendResponsesToOverlayData(
@@ -368,6 +412,7 @@ export function OverlayApp() {
         );
 
         setOverlayData(nextOverlayData);
+        setLivePlayers(playerStatsResponse.players);
         setOverlayStatus({
           state: "ready",
           lastUpdated: nextOverlayData.gameState.updatedAt
@@ -405,6 +450,54 @@ export function OverlayApp() {
     () => overlayData.positions.filter((position) => position.status !== "lost").length,
     [overlayData.positions]
   );
+  const fallbackPlayers = useMemo<BackendPlayersResponse["players"]>(
+    () =>
+      overlayData.gameState.playerStats.map((playerStat) => ({
+        playerName: playerStat.playerName,
+        team: playerStat.team,
+        stats: {
+          points: playerStat.statType === "points" ? playerStat.current : undefined,
+          rebounds: playerStat.statType === "rebounds" ? playerStat.current : undefined,
+          assists: playerStat.statType === "assists" ? playerStat.current : undefined,
+          threes_made: playerStat.statType === "threes_made" ? playerStat.current : undefined,
+          steals: playerStat.statType === "steals" ? playerStat.current : undefined,
+          blocks: playerStat.statType === "blocks" ? playerStat.current : undefined,
+          turnovers: playerStat.statType === "turnovers" ? playerStat.current : undefined
+        }
+      })),
+    [overlayData.gameState.playerStats]
+  );
+  const manualOverlayChips = useMemo<ManualLegOverlayChip[]>(
+    () => {
+      if (!manualParlay) {
+        return [];
+      }
+
+      return buildManualLegOverlayChips({
+        manualLegs: manualParlay.legs,
+        gameState: overlayData.gameState,
+        playerStats: livePlayers.length > 0 ? livePlayers : fallbackPlayers,
+        kalshiPositions: overlayData.positions
+      });
+    },
+    [manualParlay, overlayData.gameState, livePlayers, fallbackPlayers, overlayData.positions]
+  );
+  const manualStatusCounts = useMemo(
+    () =>
+      manualOverlayChips.reduce(
+        (accumulator, chip) => {
+          accumulator[chip.status] += 1;
+          return accumulator;
+        },
+        {
+          hit: 0,
+          live: 0,
+          behind: 0,
+          unavailable: 0
+        } satisfies Record<ManualLegOverlayChip["status"], number>
+      ),
+    [manualOverlayChips]
+  );
 
   async function updateUiState(next: OverlayUiState) {
     setUiState(next);
@@ -434,6 +527,9 @@ export function OverlayApp() {
   const parlayOddsMovement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
   const compactParlaySummary = formatParlayOddsTicker(manualParlay);
   const compactParlayDetail = formatParlayOddsTickerDetail(manualParlay);
+  const trackedManualLegsCount = manualParlay.legs.length - manualStatusCounts.unavailable;
+  const watchManualLegsCount = manualStatusCounts.live + manualStatusCounts.behind;
+  const compactManualStatusSummary = `${trackedManualLegsCount} tracked · ${manualStatusCounts.hit} hit${watchManualLegsCount ? ` · ${watchManualLegsCount} watch` : ""}${manualStatusCounts.unavailable ? ` · ${manualStatusCounts.unavailable} unavailable` : ""}`;
 
   if (uiState.closed) {
     return (
@@ -492,27 +588,25 @@ export function OverlayApp() {
                 <>
                   <div
                     className="klo-info-chip klo-parlay-summary-chip"
-                    title={`${compactParlaySummary} | ${compactParlayDetail}`}
+                    title={`${compactParlaySummary} | ${compactParlayDetail} | ${compactManualStatusSummary}`}
                   >
-                    {compactParlaySummary}
+                    {compactParlaySummary} | {compactManualStatusSummary}
                   </div>
 
-                  {manualParlay.legs.map((leg) => {
-                    const legStatus = getManualLegStatus(leg);
-                    const chipColor = getChipStatusColor(legStatus);
-                    const oddsTicker = formatManualLegOddsTicker(leg);
+                  {manualOverlayChips.map((chip) => {
+                    const chipColor = getManualChipColor(chip.status);
 
                     return (
                       <div
-                        className={`klo-bet-chip ${getChipTone(legStatus)}`}
-                        key={leg.id}
-                        title={oddsTicker ? `${formatManualLegNeed(leg)} | ${oddsTicker}` : formatManualLegNeed(leg)}
+                        className={`klo-bet-chip ${getManualChipTone(chip.status)}`}
+                        key={chip.id}
+                        title={chip.oddsText ? `${chip.needsText} | ${chip.oddsText}` : chip.needsText}
                       >
-                        <span className="klo-chip-label">{oddsTicker ? `${formatManualLegChipLabel(leg)} | ${oddsTicker}` : formatManualLegChipLabel(leg)}</span>
+                        <span className="klo-chip-label">{chip.oddsText ? `${chip.label} | ${chip.oddsText}` : chip.label}</span>
                         <span
                           className="klo-chip-progress"
                           style={{
-                            width: `${getManualLegProgress(leg)}%`,
+                            width: `${chip.progressPercent}%`,
                             backgroundColor: chipColor
                           }}
                         />
@@ -581,7 +675,7 @@ export function OverlayApp() {
               {toggleLabel}
             </button>
             <span className="klo-info-chip klo-status-chip">
-              {isManualMode ? `${manualParlay.legs.length} legs` : `${activePositions} active`}
+              {isManualMode ? `${manualParlay.legs.length} legs · ${trackedManualLegsCount} tracked` : `${activePositions} active`}
             </span>
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
@@ -642,6 +736,7 @@ export function OverlayApp() {
           </div>
 
           <section className="klo-scoreboard-card">
+            <div className="klo-summary-eyebrow">Parlay Summary</div>
             <div className="klo-scoreboard-row">
               <span>Amount wagered</span>
               <strong>{formatCurrency(manualParlay.amountWagered)}</strong>
@@ -668,6 +763,12 @@ export function OverlayApp() {
                 Chance {directionArrow(parlayOddsMovement.probabilityDirection)} · Payout {parlayOddsMovement.payoutDirection}
               </strong>
             </div>
+            <div className="klo-summary-chips">
+              <span className="klo-summary-chip is-live">{trackedManualLegsCount} tracked</span>
+              <span className="klo-summary-chip is-good">{manualStatusCounts.hit} hit</span>
+              <span className="klo-summary-chip is-bad">{watchManualLegsCount} watch</span>
+              <span className="klo-summary-chip is-unavailable">{manualStatusCounts.unavailable} unavailable</span>
+            </div>
             <div className="klo-scoreboard-meta">Manual parlay mode · updated {lastUpdated}</div>
           </section>
 
@@ -681,18 +782,34 @@ export function OverlayApp() {
                 </div>
               </article>
             ) : (
-              manualParlay.legs.map((leg) => {
-                const legStatus = getManualLegStatus(leg);
+              manualOverlayChips.map((chip, index) => {
+                const leg = manualParlay.legs[index];
                 const legOddsMovement =
-                  typeof leg.originalOdds === "number" && typeof leg.currentOdds === "number"
+                  typeof leg?.originalOdds === "number" && typeof leg.currentOdds === "number"
                     ? getOddsMovement(leg.originalOdds, leg.currentOdds)
                     : null;
 
                 return (
-                  <article className="klo-position-card" key={leg.id}>
-                    <div className="klo-card-title">{formatManualLegDetail(leg)}</div>
+                  <article className={`klo-position-card klo-manual-leg-card ${getManualChipTone(chip.status)}`} key={chip.id}>
+                    <div className="klo-card-meta klo-card-meta-top">
+                      <div className="klo-card-title">{chip.label}</div>
+                      <span className={`klo-status-badge ${getManualChipTone(chip.status)}`}>
+                        {getManualChipBadgeLabel(chip.status)}
+                      </span>
+                    </div>
+                    {(typeof chip.current === "number" || typeof chip.target === "number") ? (
+                      <div className="klo-card-meta">
+                        <span>
+                          Live progress
+                        </span>
+                        <span>
+                          {typeof chip.current === "number" ? chip.current : "--"}
+                          {typeof chip.target === "number" ? ` / ${chip.target}` : ""}
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="klo-card-meta">
-                      <span>{formatManualLegNeed(leg)}</span>
+                      <span>{chip.needsText}</span>
                     </div>
                     {legOddsMovement ? (
                       <div className="klo-card-meta">
@@ -710,7 +827,15 @@ export function OverlayApp() {
                         <span>Payout {legOddsMovement.payoutDirection}</span>
                       </div>
                     ) : null}
-                    {leg.type === "prediction_market" ? (
+                    {leg?.type === "prediction_market" && (typeof leg.originalPrice === "number" || typeof leg.currentPrice === "number") ? (
+                      <div className="klo-card-meta">
+                        <span>Market price</span>
+                        <span>
+                          {typeof leg.originalPrice === "number" ? `${leg.originalPrice}%` : "--"} {"->"} {typeof leg.currentPrice === "number" ? `${leg.currentPrice}%` : "--"}
+                        </span>
+                      </div>
+                    ) : null}
+                    {leg?.type === "prediction_market" ? (
                       <div className="klo-card-meta">
                         <span>
                           {leg.side} {typeof leg.currentPrice === "number" ? `${leg.currentPrice}%` : "pending"}
@@ -720,7 +845,7 @@ export function OverlayApp() {
                         </span>
                       </div>
                     ) : null}
-                    <ProgressBar progress={getManualLegProgress(leg)} color={getChipStatusColor(legStatus)} />
+                    <ProgressBar progress={chip.progressPercent} color={getManualChipColor(chip.status)} />
                   </article>
                 );
               })

@@ -98,12 +98,13 @@
 }
 
 .klo-title-chip {
-  max-width: 180px;
+  max-width: 120px;
 }
 
 .klo-parlay-summary-chip {
-  max-width: min(460px, 42vw);
-  flex: 1 1 320px;
+  max-width: min(700px, 60vw);
+  flex: 1 1 460px;
+  padding-inline: 12px;
 }
 
 .klo-bet-chip {
@@ -129,6 +130,14 @@
 .klo-status-badge.is-bad {
   background: rgba(103, 36, 36, 0.9);
   border-color: rgba(241, 91, 91, 0.3);
+}
+
+.klo-bet-chip.is-unavailable,
+.klo-status-badge.is-unavailable,
+.klo-summary-chip.is-unavailable {
+  background: rgba(74, 84, 96, 0.88);
+  border-color: rgba(149, 167, 187, 0.28);
+  color: #d5e2ef;
 }
 
 .klo-chip-label {
@@ -227,6 +236,22 @@
   padding: 12px;
 }
 
+.klo-manual-leg-card.is-good {
+  border-color: rgba(97, 235, 174, 0.22);
+}
+
+.klo-manual-leg-card.is-live {
+  border-color: rgba(247, 201, 72, 0.22);
+}
+
+.klo-manual-leg-card.is-bad {
+  border-color: rgba(241, 91, 91, 0.22);
+}
+
+.klo-manual-leg-card.is-unavailable {
+  border-color: rgba(149, 167, 187, 0.22);
+}
+
 .klo-scoreboard-card {
   display: flex;
   flex-direction: column;
@@ -241,6 +266,44 @@
 .klo-scoreboard-meta {
   font-size: 12px;
   color: #dce7f2;
+}
+
+.klo-summary-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9cb7d3;
+}
+
+.klo-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.klo-summary-chip {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #eef7ff;
+}
+
+.klo-summary-chip.is-good {
+  background: rgba(27, 88, 58, 0.9);
+  border-color: rgba(97, 235, 174, 0.32);
+}
+
+.klo-summary-chip.is-live {
+  background: rgba(102, 81, 17, 0.9);
+  border-color: rgba(247, 201, 72, 0.3);
+}
+
+.klo-summary-chip.is-bad {
+  background: rgba(103, 36, 36, 0.9);
+  border-color: rgba(241, 91, 91, 0.3);
 }
 
 .klo-card-section {
@@ -335,12 +398,12 @@
   }
 
   .klo-title-chip {
-    max-width: 140px;
+    max-width: 96px;
   }
 
   .klo-parlay-summary-chip {
-    max-width: min(320px, 46vw);
-    flex-basis: 240px;
+    max-width: min(440px, 58vw);
+    flex-basis: 340px;
   }
 
   .klo-updated-chip {
