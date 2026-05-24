@@ -28,11 +28,13 @@ type LegDraft = {
   spreadSide: SpreadSide;
   matchup: string;
   marketTitle: string;
+  marketTicker: string;
   predictionSide: ManualPredictionSide;
   originalOdds: string;
   currentOdds: string;
   originalPrice: string;
   currentPrice: string;
+  contractsOwned: string;
   whatNeedsToHappen: string;
 };
 
@@ -47,11 +49,13 @@ const DEFAULT_DRAFT: LegDraft = {
   spreadSide: "plus",
   matchup: "",
   marketTitle: "",
+  marketTicker: "",
   predictionSide: "YES",
   originalOdds: "",
   currentOdds: "",
   originalPrice: "",
   currentPrice: "",
+  contractsOwned: "",
   whatNeedsToHappen: ""
 };
 
@@ -79,7 +83,7 @@ function legSummary(leg: ManualParlayLeg): string {
     case "game_total":
       return `${leg.matchup} ${leg.direction} ${leg.line}`;
     case "prediction_market":
-      return `${leg.side} ${leg.marketTitle}${typeof leg.currentOdds === "number" ? ` · ${formatAmericanOdds(leg.currentOdds)}` : ""}`;
+      return `${leg.userSide} ${leg.marketTitle}${leg.marketTicker ? ` · ${leg.marketTicker}` : ""}${typeof leg.currentOdds === "number" ? ` · ${formatAmericanOdds(leg.currentOdds)}` : ""}`;
   }
 }
 
@@ -89,6 +93,7 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
   const currentOdds = draft.currentOdds === "" ? undefined : Number(draft.currentOdds);
   const originalPrice = draft.originalPrice === "" ? undefined : Number(draft.originalPrice);
   const currentPrice = draft.currentPrice === "" ? undefined : Number(draft.currentPrice);
+  const contractsOwned = draft.contractsOwned === "" ? undefined : Number(draft.contractsOwned);
 
   switch (draft.type) {
     case "player_prop":
@@ -157,11 +162,13 @@ function buildLegFromDraft(draft: LegDraft): ManualParlayLeg | null {
         id: createLegId(),
         type: "prediction_market",
         marketTitle: draft.marketTitle.trim(),
-        side: draft.predictionSide,
+        marketTicker: draft.marketTicker.trim() || undefined,
+        userSide: draft.predictionSide,
         originalOdds: Number.isNaN(originalOdds ?? Number.NaN) ? undefined : originalOdds,
         currentOdds: Number.isNaN(currentOdds ?? Number.NaN) ? undefined : currentOdds,
         originalPrice: Number.isNaN(originalPrice ?? Number.NaN) ? undefined : originalPrice,
         currentPrice: Number.isNaN(currentPrice ?? Number.NaN) ? undefined : currentPrice,
+        contractsOwned: Number.isNaN(contractsOwned ?? Number.NaN) ? undefined : contractsOwned,
         whatNeedsToHappen: draft.whatNeedsToHappen.trim()
       };
   }
@@ -514,7 +521,11 @@ export function PopupApp() {
                 <input value={draft.marketTitle} onChange={(event) => setDraft({ ...draft, marketTitle: event.target.value })} />
               </label>
               <label>
-                Side
+                Market ticker
+                <input value={draft.marketTicker} onChange={(event) => setDraft({ ...draft, marketTicker: event.target.value })} />
+              </label>
+              <label>
+                User side
                 <select value={draft.predictionSide} onChange={(event) => setDraft({ ...draft, predictionSide: event.target.value as ManualPredictionSide })}>
                   <option value="YES">YES</option>
                   <option value="NO">NO</option>
@@ -527,6 +538,10 @@ export function PopupApp() {
               <label>
                 Current price
                 <input type="number" value={draft.currentPrice} onChange={(event) => setDraft({ ...draft, currentPrice: event.target.value })} />
+              </label>
+              <label>
+                Contracts owned
+                <input type="number" value={draft.contractsOwned} onChange={(event) => setDraft({ ...draft, contractsOwned: event.target.value })} />
               </label>
               <label className="field-span-2">
                 What needs to happen
@@ -575,7 +590,9 @@ export function PopupApp() {
                   </button>
                 </div>
                 <div className="position-note">
-                  {leg.type === "prediction_market" ? leg.whatNeedsToHappen : "Manual parlay leg saved locally for overlay rendering."}
+                  {leg.type === "prediction_market"
+                    ? `${leg.marketTicker ? `Ticker ${leg.marketTicker} · ` : ""}${leg.whatNeedsToHappen}`
+                    : "Manual parlay leg saved locally for overlay rendering."}
                 </div>
               </article>
             ))

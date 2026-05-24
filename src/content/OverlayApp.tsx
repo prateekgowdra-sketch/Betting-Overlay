@@ -30,6 +30,7 @@ import {
   getOddsMovement
 } from "../shared/odds";
 import { BackendPlayersResponse } from "../shared/overlayState";
+import { BackendKalshiMarketResponse } from "../shared/overlayState";
 import { buildManualLegOverlayChips } from "../shared/manualLegMatcher";
 
 function formatUpdatedTime(timestamp?: string): string {
@@ -260,7 +261,7 @@ function formatManualLegChipLabel(leg: ManualParlayLeg): string {
     case "game_total":
       return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}${oddsText}`;
     case "prediction_market":
-      return `${leg.side} ${leg.marketTitle}${oddsText}`;
+      return `${leg.userSide} ${leg.marketTitle}${oddsText}`;
   }
 }
 
@@ -275,7 +276,7 @@ function formatManualLegDetail(leg: ManualParlayLeg): string {
     case "game_total":
       return `${leg.matchup} ${leg.direction} ${leg.line}`;
     case "prediction_market":
-      return `${leg.side} · ${leg.marketTitle}`;
+      return `${leg.userSide} · ${leg.marketTitle}`;
   }
 }
 
@@ -292,6 +293,10 @@ function formatManualLegNeed(leg: ManualParlayLeg): string {
     case "prediction_market":
       return leg.whatNeedsToHappen;
   }
+}
+
+function formatManualPredictionPrice(value?: number): string {
+  return typeof value === "number" ? `${value}%` : "--";
 }
 
 function directionArrow(direction: "up" | "down" | "same"): string {
@@ -342,6 +347,7 @@ export function OverlayApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
   const [livePlayers, setLivePlayers] = useState<BackendPlayersResponse["players"]>([]);
+  const [manualKalshiMarkets, setManualKalshiMarkets] = useState<Record<string, BackendKalshiMarketResponse["market"] | undefined>>({});
   const syncInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -406,6 +412,25 @@ export function OverlayApp() {
           backendApi.getPlayerStats(settings.selectedGameId)
         ]);
 
+        const predictionMarketLegs =
+          settings.dataMode === "manual"
+            ? (manualParlay?.legs.filter(
+                (leg): leg is Extract<ManualParlayLeg, { type: "prediction_market" }> =>
+                  leg.type === "prediction_market" && Boolean(leg.marketTicker)
+              ) ?? [])
+            : [];
+
+        const marketEntries = await Promise.all(
+          predictionMarketLegs.map(async (leg) => {
+            try {
+              const response = await backendApi.getKalshiMarket(leg.marketTicker!);
+              return [leg.marketTicker!, response.market ?? undefined] as const;
+            } catch {
+              return [leg.marketTicker!, undefined] as const;
+            }
+          })
+        );
+
         const nextOverlayData = mapBackendResponsesToOverlayData(
           gameStateResponse,
           kalshiPositionsResponse
@@ -413,6 +438,7 @@ export function OverlayApp() {
 
         setOverlayData(nextOverlayData);
         setLivePlayers(playerStatsResponse.players);
+        setManualKalshiMarkets(Object.fromEntries(marketEntries));
         setOverlayStatus({
           state: "ready",
           lastUpdated: nextOverlayData.gameState.updatedAt
@@ -441,7 +467,7 @@ export function OverlayApp() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [settings, overlayData.gameState.updatedAt]);
+  }, [settings, manualParlay, overlayData.gameState.updatedAt]);
 
   const gameState = overlayData.gameState;
   const positionChips = useMemo(() => overlayData.positions.slice(0, 2), [overlayData.positions]);
@@ -477,10 +503,11 @@ export function OverlayApp() {
         manualLegs: manualParlay.legs,
         gameState: overlayData.gameState,
         playerStats: livePlayers.length > 0 ? livePlayers : fallbackPlayers,
-        kalshiPositions: overlayData.positions
+        kalshiPositions: overlayData.positions,
+        kalshiMarketsByTicker: manualKalshiMarkets
       });
     },
-    [manualParlay, overlayData.gameState, livePlayers, fallbackPlayers, overlayData.positions]
+    [manualParlay, overlayData.gameState, livePlayers, fallbackPlayers, overlayData.positions, manualKalshiMarkets]
   );
   const manualStatusCounts = useMemo(
     () =>
@@ -811,6 +838,48 @@ export function OverlayApp() {
                     <div className="klo-card-meta">
                       <span>{chip.needsText}</span>
                     </div>
+                    {leg?.type === "prediction_market" ? (
+                      <>
+                        <div className="klo-card-meta">
+                          <span>Market title</span>
+                          <span>{chip.marketTitle ?? leg.marketTitle}</span>
+                        </div>
+                        <div className="klo-card-meta">
+                          <span>User side</span>
+                          <span>{chip.userSide ?? leg.userSide}</span>
+                        </div>
+                        <div className="klo-card-meta">
+                          <span>YES / NO price</span>
+                          <span>
+                            {formatManualPredictionPrice(chip.yesPrice)} / {formatManualPredictionPrice(chip.noPrice)}
+                          </span>
+                        </div>
+                        <div className="klo-card-meta">
+                          <span>Original {"->"} current</span>
+                          <span>
+                            {formatManualPredictionPrice(chip.originalPrice ?? leg.originalPrice)} {"->"} {formatManualPredictionPrice(chip.currentPrice ?? leg.currentPrice)}
+                          </span>
+                        </div>
+                        {chip.marketTicker ? (
+                          <div className="klo-card-meta">
+                            <span>Ticker</span>
+                            <span>{chip.marketTicker}</span>
+                          </div>
+                        ) : null}
+                        {typeof (chip.contractsOwned ?? leg.contractsOwned) === "number" ? (
+                          <div className="klo-card-meta">
+                            <span>Contracts owned</span>
+                            <span>{chip.contractsOwned ?? leg.contractsOwned}</span>
+                          </div>
+                        ) : null}
+                        {chip.chanceText ? (
+                          <div className="klo-card-meta">
+                            <span>Movement</span>
+                            <span>{chip.chanceText}</span>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                     {legOddsMovement ? (
                       <div className="klo-card-meta">
                         <span>
@@ -825,24 +894,6 @@ export function OverlayApp() {
                           {(legOddsMovement.originalImpliedProbability * 100).toFixed(1)}% {"->"} {(legOddsMovement.currentImpliedProbability * 100).toFixed(1)}%
                         </span>
                         <span>Payout {legOddsMovement.payoutDirection}</span>
-                      </div>
-                    ) : null}
-                    {leg?.type === "prediction_market" && (typeof leg.originalPrice === "number" || typeof leg.currentPrice === "number") ? (
-                      <div className="klo-card-meta">
-                        <span>Market price</span>
-                        <span>
-                          {typeof leg.originalPrice === "number" ? `${leg.originalPrice}%` : "--"} {"->"} {typeof leg.currentPrice === "number" ? `${leg.currentPrice}%` : "--"}
-                        </span>
-                      </div>
-                    ) : null}
-                    {leg?.type === "prediction_market" ? (
-                      <div className="klo-card-meta">
-                        <span>
-                          {leg.side} {typeof leg.currentPrice === "number" ? `${leg.currentPrice}%` : "pending"}
-                        </span>
-                        <span>
-                          entry {typeof leg.originalPrice === "number" ? `${leg.originalPrice}%` : "--"}
-                        </span>
                       </div>
                     ) : null}
                     <ProgressBar progress={chip.progressPercent} color={getManualChipColor(chip.status)} />

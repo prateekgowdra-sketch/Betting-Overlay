@@ -53,7 +53,10 @@ function getMockMarkets() {
       status: "active",
       yes_bid_cents: 60,
       yes_ask_cents: 64,
-      last_price_cents: 62
+      no_bid_cents: 36,
+      no_ask_cents: 40,
+      last_price_cents: 62,
+      updated_at: getNowIso()
     },
     {
       ticker: "KXO-JBRUNSON-PTS-25",
@@ -61,9 +64,70 @@ function getMockMarkets() {
       status: "active",
       yes_bid_cents: 65,
       yes_ask_cents: 69,
-      last_price_cents: 67
+      no_bid_cents: 31,
+      no_ask_cents: 35,
+      last_price_cents: 67,
+      updated_at: getNowIso()
     }
   ];
+}
+
+function dollarsStringToCents(value) {
+  if (typeof value !== "string" || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+
+  if (Number.isNaN(numeric)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric * 100)));
+}
+
+function normalizeKalshiMarket(rawMarket) {
+  if (!rawMarket) {
+    return null;
+  }
+
+  if ("yes_ask_cents" in rawMarket || "yes_bid_cents" in rawMarket) {
+    const yesPriceCents =
+      rawMarket.last_price_cents ?? rawMarket.yes_ask_cents ?? rawMarket.yes_bid_cents ?? null;
+    const noPriceCents =
+      rawMarket.no_ask_cents ??
+      rawMarket.no_bid_cents ??
+      (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
+
+    return {
+      ticker: rawMarket.ticker,
+      title: rawMarket.title,
+      status: rawMarket.status,
+      yesPriceCents,
+      noPriceCents,
+      lastPriceCents: rawMarket.last_price_cents ?? yesPriceCents,
+      updatedAt: rawMarket.updated_at ?? null
+    };
+  }
+
+  const yesPriceCents =
+    dollarsStringToCents(rawMarket.yes_ask_dollars) ??
+    dollarsStringToCents(rawMarket.yes_bid_dollars) ??
+    dollarsStringToCents(rawMarket.last_price_dollars);
+  const noPriceCents =
+    dollarsStringToCents(rawMarket.no_ask_dollars) ??
+    dollarsStringToCents(rawMarket.no_bid_dollars) ??
+    (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
+
+  return {
+    ticker: rawMarket.ticker,
+    title: rawMarket.title ?? rawMarket.yes_sub_title ?? rawMarket.ticker,
+    status: rawMarket.status ?? "unknown",
+    yesPriceCents,
+    noPriceCents,
+    lastPriceCents: dollarsStringToCents(rawMarket.last_price_dollars) ?? yesPriceCents,
+    updatedAt: rawMarket.updated_time ?? null
+  };
 }
 
 class KalshiService {
@@ -125,7 +189,7 @@ class KalshiService {
       return {
         mode: "mock",
         environment: this.getEnvironment(),
-        market
+        market: normalizeKalshiMarket(market)
       };
     }
 
@@ -134,7 +198,7 @@ class KalshiService {
     return {
       mode: "real",
       environment: this.getEnvironment(),
-      market: response.market ?? null,
+      market: normalizeKalshiMarket(response.market ?? null),
       raw: response
     };
   }

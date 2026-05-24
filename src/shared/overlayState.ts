@@ -80,6 +80,20 @@ export interface BackendPlayersResponse {
   }>;
 }
 
+export interface BackendKalshiMarketResponse {
+  mode: "mock" | "real";
+  environment: "demo" | "production";
+  market: {
+    ticker: string;
+    title: string;
+    status: string;
+    yesPriceCents: number | null;
+    noPriceCents: number | null;
+    lastPriceCents: number | null;
+    updatedAt: string | null;
+  } | null;
+}
+
 function clampProgress(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }

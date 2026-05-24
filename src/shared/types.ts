@@ -164,9 +164,11 @@ export interface ManualGameTotalLeg extends ManualParlayLegBase {
 export interface ManualPredictionMarketLeg extends ManualParlayLegBase {
   type: "prediction_market";
   marketTitle: string;
-  side: ManualPredictionSide;
+  marketTicker?: string;
+  userSide: ManualPredictionSide;
   originalPrice?: number;
   currentPrice?: number;
+  contractsOwned?: number;
   whatNeedsToHappen: string;
 }
 
@@ -200,4 +202,13 @@ export interface ManualLegOverlayChip {
   status: ManualLegLiveStatus;
   needsText: string;
   oddsText?: string;
+  marketTitle?: string;
+  marketTicker?: string;
+  userSide?: ManualPredictionSide;
+  yesPrice?: number;
+  noPrice?: number;
+  originalPrice?: number;
+  currentPrice?: number;
+  contractsOwned?: number;
+  chanceText?: string;
 }

@@ -1,5 +1,6 @@
 import {
   BackendGameResponse,
+  BackendKalshiMarketResponse,
   BackendKalshiPositionResponse,
   BackendPlayersResponse
 } from "../shared/overlayState";
@@ -57,6 +58,16 @@ class BackendApi {
     }
 
     return (await response.json()) as BackendPlayersResponse;
+  }
+
+  async getKalshiMarket(ticker: string): Promise<BackendKalshiMarketResponse> {
+    const response = await fetch(this.buildUrl(`/kalshi/market/${encodeURIComponent(ticker)}`));
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Kalshi market ${ticker}`);
+    }
+
+    return (await response.json()) as BackendKalshiMarketResponse;
   }
 
   private buildUrl(path: string): string {

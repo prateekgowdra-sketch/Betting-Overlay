@@ -3,9 +3,10 @@ import {
   ManualLegOverlayChip,
   ManualParlayLeg,
   ManualLegLiveStatus,
+  ManualPredictionMarketLeg,
   GameState
 } from "./types";
-import { BackendPlayersResponse } from "./overlayState";
+import { BackendKalshiMarketResponse, BackendPlayersResponse } from "./overlayState";
 import { formatAmericanOdds, getOddsMovement } from "./odds";
 
 function normalizeText(value: string): string {
@@ -104,6 +105,85 @@ function buildUnavailableChip(leg: ManualParlayLeg, label: string, needsText: st
   };
 }
 
+function formatPriceMovementText(originalPrice?: number, currentPrice?: number): string | undefined {
+  if (typeof originalPrice !== "number" || typeof currentPrice !== "number") {
+    return undefined;
+  }
+
+  const move = currentPrice - originalPrice;
+  const arrow = move > 0 ? "↑" : move < 0 ? "↓" : "→";
+
+  return `Price ${originalPrice} -> ${currentPrice} · Chance ${arrow}`;
+}
+
+function getPredictionMarketStatus(
+  currentPrice: number | undefined,
+  marketStatus?: string
+): ManualLegLiveStatus {
+  if (typeof currentPrice !== "number") {
+    return "unavailable";
+  }
+
+  const normalizedStatus = marketStatus?.toLowerCase();
+
+  if ((normalizedStatus === "settled" || normalizedStatus === "closed") && currentPrice >= 99) {
+    return "hit";
+  }
+
+  if ((normalizedStatus === "settled" || normalizedStatus === "closed") && currentPrice <= 1) {
+    return "behind";
+  }
+
+  if (currentPrice >= 70) {
+    return "live";
+  }
+
+  if (currentPrice <= 30) {
+    return "behind";
+  }
+
+  return "live";
+}
+
+function buildPredictionMarketChip(
+  leg: ManualPredictionMarketLeg,
+  market: BackendKalshiMarketResponse["market"]
+): ManualLegOverlayChip {
+  const currentSidePrice =
+    leg.userSide === "YES" ? market?.yesPriceCents ?? undefined : market?.noPriceCents ?? undefined;
+  const originalPrice = leg.originalPrice;
+  const effectiveCurrentPrice =
+    typeof currentSidePrice === "number" ? currentSidePrice : leg.currentPrice;
+  const yesPrice = market?.yesPriceCents ?? (leg.userSide === "YES" ? leg.currentPrice : undefined);
+  const noPrice = market?.noPriceCents ?? (leg.userSide === "NO" ? leg.currentPrice : undefined);
+  const movementText = formatPriceMovementText(originalPrice, effectiveCurrentPrice);
+  const priceSummary =
+    typeof yesPrice === "number" || typeof noPrice === "number"
+      ? `${typeof yesPrice === "number" ? `Y ${yesPrice}` : "Y --"} · ${typeof noPrice === "number" ? `N ${noPrice}` : "N --"}`
+      : "Market prices unavailable";
+
+  return {
+    id: leg.id,
+    label: `${leg.userSide} ${leg.marketTitle} · ${priceSummary}`,
+    type: leg.type,
+    current: effectiveCurrentPrice,
+    target: 100,
+    progressPercent: typeof effectiveCurrentPrice === "number" ? effectiveCurrentPrice : 0,
+    status: getPredictionMarketStatus(effectiveCurrentPrice, market?.status),
+    needsText: leg.whatNeedsToHappen,
+    oddsText: movementText,
+    marketTitle: leg.marketTitle,
+    marketTicker: leg.marketTicker,
+    userSide: leg.userSide,
+    yesPrice,
+    noPrice,
+    originalPrice,
+    currentPrice: effectiveCurrentPrice,
+    contractsOwned: leg.contractsOwned,
+    chanceText: movementText
+  };
+}
+
 function getPregameLabel(leg: ManualParlayLeg): string {
   switch (leg.type) {
     case "player_prop":
@@ -115,7 +195,7 @@ function getPregameLabel(leg: ManualParlayLeg): string {
     case "game_total":
       return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}`;
     case "prediction_market":
-      return `${leg.side} ${leg.marketTitle}`;
+      return `${leg.userSide} ${leg.marketTitle}`;
   }
 }
 
@@ -137,8 +217,9 @@ export function buildManualLegOverlayChips(params: {
   gameState: GameState;
   playerStats: BackendPlayersResponse["players"];
   kalshiPositions: KalshiPosition[];
+  kalshiMarketsByTicker?: Record<string, BackendKalshiMarketResponse["market"] | undefined>;
 }): ManualLegOverlayChip[] {
-  const { manualLegs, gameState, playerStats, kalshiPositions } = params;
+  const { manualLegs, gameState, playerStats, kalshiPositions, kalshiMarketsByTicker = {} } = params;
   const gameHasNotStarted = gameState.gameStatus === "upcoming";
   const gameIsFinal = gameState.gameStatus === "final";
 
@@ -270,24 +351,47 @@ export function buildManualLegOverlayChips(params: {
         };
       }
       case "prediction_market": {
+        if (leg.marketTicker) {
+          const matchedMarket = kalshiMarketsByTicker[leg.marketTicker];
+
+          if (!matchedMarket) {
+            return buildUnavailableChip(
+              leg,
+              `${leg.userSide} ${leg.marketTitle}`,
+              `Market ticker ${leg.marketTicker} is unavailable`
+            );
+          }
+
+          return buildPredictionMarketChip(leg, matchedMarket);
+        }
+
         const matchingPosition = kalshiPositions.find(
           (position) => normalizeText(position.marketTitle) === normalizeText(leg.marketTitle)
         );
 
         if (!matchingPosition) {
-          return buildUnavailableChip(leg, `${leg.side} ${leg.marketTitle}`, leg.whatNeedsToHappen);
+          return buildUnavailableChip(leg, `${leg.userSide} ${leg.marketTitle}`, leg.whatNeedsToHappen);
         }
 
         return {
           id: leg.id,
-          label: `${leg.side} ${leg.marketTitle}`,
+          label: `${leg.userSide} ${leg.marketTitle}`,
           type: leg.type,
           current: matchingPosition.currentPriceCents,
           target: 100,
           progressPercent: matchingPosition.currentPriceCents,
           status: liveStatusToChipStatus(matchingPosition.status),
           needsText: matchingPosition.whatNeedsToHappen,
-          oddsText
+          oddsText,
+          marketTitle: leg.marketTitle,
+          marketTicker: leg.marketTicker,
+          userSide: leg.userSide,
+          yesPrice: leg.userSide === "YES" ? matchingPosition.currentPriceCents : 100 - matchingPosition.currentPriceCents,
+          noPrice: leg.userSide === "NO" ? matchingPosition.currentPriceCents : 100 - matchingPosition.currentPriceCents,
+          originalPrice: leg.originalPrice,
+          currentPrice: leg.currentPrice ?? matchingPosition.currentPriceCents,
+          contractsOwned: leg.contractsOwned,
+          chanceText: formatPriceMovementText(leg.originalPrice, leg.currentPrice ?? matchingPosition.currentPriceCents)
         };
       }
     }
