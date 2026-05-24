@@ -479,17 +479,16 @@ export function OverlayApp() {
   const fallbackPlayers = useMemo<BackendPlayersResponse["players"]>(
     () =>
       overlayData.gameState.playerStats.map((playerStat) => ({
-        playerName: playerStat.playerName,
+        playerId: playerStat.id,
+        name: playerStat.playerName,
         team: playerStat.team,
-        stats: {
-          points: playerStat.statType === "points" ? playerStat.current : undefined,
-          rebounds: playerStat.statType === "rebounds" ? playerStat.current : undefined,
-          assists: playerStat.statType === "assists" ? playerStat.current : undefined,
-          threes_made: playerStat.statType === "threes_made" ? playerStat.current : undefined,
-          steals: playerStat.statType === "steals" ? playerStat.current : undefined,
-          blocks: playerStat.statType === "blocks" ? playerStat.current : undefined,
-          turnovers: playerStat.statType === "turnovers" ? playerStat.current : undefined
-        }
+        points: playerStat.statType === "points" ? playerStat.current : undefined,
+        rebounds: playerStat.statType === "rebounds" ? playerStat.current : undefined,
+        assists: playerStat.statType === "assists" ? playerStat.current : undefined,
+        threesMade: playerStat.statType === "threes_made" ? playerStat.current : undefined,
+        steals: playerStat.statType === "steals" ? playerStat.current : undefined,
+        blocks: playerStat.statType === "blocks" ? playerStat.current : undefined,
+        turnovers: playerStat.statType === "turnovers" ? playerStat.current : undefined
       })),
     [overlayData.gameState.playerStats]
   );

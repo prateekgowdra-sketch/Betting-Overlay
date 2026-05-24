@@ -69,8 +69,14 @@ The backend already supports a provider-based sports data layer.
 
 - default: `mock`
 - optional live scores provider: `the_odds_api`
+- placeholder provider path for future integration: `sportsdataio`
 
-At the moment, the live provider is only intended for normalized game-level score data. Player-level stats are still mock-backed unless a future player-stats provider is added.
+At the moment:
+- `mock` powers the full demo experience
+- `the_odds_api` is wired for normalized game-level score data
+- `sportsdataio` is scaffolded as a future provider path and currently falls back safely to mock
+
+Player-level stats are still mock-backed unless a future player-stats provider is added.
 
 ## Future Read-Only Kalshi Integration
 
@@ -164,6 +170,7 @@ Default safe configuration:
 SPORTS_DATA_PROVIDER=mock
 THE_ODDS_SPORT_KEY=basketball_nba
 THE_ODDS_API_KEY=
+SPORTSDATAIO_API_KEY=
 KALSHI_MODE=mock
 KALSHI_ENV=demo
 KALSHI_API_KEY_ID=

@@ -170,7 +170,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && url.pathname === "/api/live/games/today") {
-    sendJson(response, 200, liveSportsService.getTodayGames());
+    sendJson(response, 200, await liveSportsService.getTodayGames());
     return;
   }
 

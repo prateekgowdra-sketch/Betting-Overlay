@@ -5,11 +5,28 @@ const TEAM_ALIASES = {
   cavaliers: "cavaliers",
   cle: "cavaliers",
   knicks: "knicks",
-  nyk: "knicks"
+  nyk: "knicks",
+  thunder: "thunder",
+  oklahomacitythunder: "thunder",
+  okc: "thunder",
+  spurs: "spurs",
+  sanantoniospurs: "spurs",
+  sas: "spurs"
+};
+
+const TEAM_ABBREVIATIONS = {
+  "New York Knicks": "NYK",
+  "Cleveland Cavaliers": "CLE",
+  "Oklahoma City Thunder": "OKC",
+  "San Antonio Spurs": "SAS"
 };
 
 function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function getTeamAbbr(value) {
+  return TEAM_ABBREVIATIONS[value] ?? slugify(value).slice(0, 3).toUpperCase();
 }
 
 function normalizeTeamToken(value) {
@@ -92,8 +109,34 @@ export class TheOddsApiProvider {
     return this.fallbackProvider.getSupportedGames();
   }
 
-  getTodayGames() {
-    return this.fallbackProvider.getTodayGames();
+  async getTodayGames() {
+    const scores = await this.fetchScores();
+
+    if (!scores) {
+      return this.fallbackProvider.getTodayGames();
+    }
+
+    return scores.map((event) => {
+      const gameStatus = inferGameStatus(event);
+      const homeScore = getScoreForTeam(event, event.home_team);
+      const awayScore = getScoreForTeam(event, event.away_team);
+
+      return {
+        gameId: `${slugify(event.away_team)}-${slugify(event.home_team)}-${event.id}`,
+        providerGameId: event.id,
+        homeTeam: event.home_team,
+        awayTeam: event.away_team,
+        homeAbbr: getTeamAbbr(event.home_team),
+        awayAbbr: getTeamAbbr(event.away_team),
+        scheduledTime: event.commence_time ?? null,
+        status: gameStatus,
+        period: gameStatus === "final" ? "Final" : gameStatus === "live" ? "Live" : "Upcoming",
+        clock: normalizeClockLabel(gameStatus),
+        homeScore,
+        awayScore,
+        source: "real"
+      };
+    });
   }
 
   getSportKey() {
@@ -135,11 +178,13 @@ export class TheOddsApiProvider {
 
     return {
       gameId,
+      source: "real",
       updatedAt: game.updatedAt,
       lastUpdated: game.lastUpdated,
       period: game.period,
       clock: game.clock,
-      teamScore: game.teamScore,
+      homeScore: game.homeScore,
+      awayScore: game.awayScore,
       players: [],
       unavailableReason: "The Odds API scores endpoint does not include player stat feeds."
     };
@@ -197,6 +242,8 @@ export class TheOddsApiProvider {
       gameId,
       sourceEventId: event.id,
       sportKey: this.getSportKey(),
+      source: "real",
+      providerGameId: event.id,
       title: `${event.away_team} at ${event.home_team}`,
       gameStatus,
       quarter: gameStatus === "final" ? "Final" : gameStatus === "live" ? "Live" : "Upcoming",
@@ -207,19 +254,21 @@ export class TheOddsApiProvider {
       homeTeam: {
         name: event.home_team,
         city: event.home_team,
-        shortName: slugify(event.home_team).slice(0, 3).toUpperCase(),
+        shortName: getTeamAbbr(event.home_team),
         score: homeScore
       },
       awayTeam: {
         name: event.away_team,
         city: event.away_team,
-        shortName: slugify(event.away_team).slice(0, 3).toUpperCase(),
+        shortName: getTeamAbbr(event.away_team),
         score: awayScore
       },
       teamScore: {
         home: homeScore,
         away: awayScore
       },
+      homeScore,
+      awayScore,
       playerStats: [],
       updatedAt,
       lastUpdated: updatedAt

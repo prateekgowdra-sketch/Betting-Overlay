@@ -1,12 +1,12 @@
-import { MockSportsDataProvider } from "./providers/mockSportsDataProvider.js";
-import { RealSportsDataProvider } from "./providers/realSportsDataProvider.js";
+import { MockSportsProvider } from "./providers/mockSportsProvider.js";
+import { SportsDataIoProvider } from "./providers/sportsDataIoProvider.js";
 import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
 
-const mockProvider = new MockSportsDataProvider();
+const mockProvider = new MockSportsProvider();
 const PROVIDERS = {
   mock: mockProvider,
-  real: new RealSportsDataProvider(),
-  the_odds_api: new TheOddsApiProvider({ fallbackProvider: mockProvider })
+  the_odds_api: new TheOddsApiProvider({ fallbackProvider: mockProvider }),
+  sportsdataio: new SportsDataIoProvider({ fallbackProvider: mockProvider })
 };
 
 function resolveProvider() {
@@ -34,7 +34,7 @@ class LiveSportsService {
     return this.getProvider().getSupportedGames();
   }
 
-  getTodayGames() {
+  async getTodayGames() {
     const provider = this.getProvider();
 
     if (typeof provider.getTodayGames === "function") {

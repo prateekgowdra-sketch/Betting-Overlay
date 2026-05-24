@@ -17,6 +17,8 @@ export interface SupportedGame {
   status?: string;
   period?: string;
   clock?: string;
+  homeScore?: number;
+  awayScore?: number;
   source?: "mock" | "real";
 }
 
@@ -72,6 +74,8 @@ class BackendApi {
       status: string;
       period: string;
       clock: string;
+      homeScore: number;
+      awayScore: number;
       source: "mock" | "real";
     }>;
 
@@ -87,6 +91,8 @@ class BackendApi {
       status: game.status,
       period: game.period,
       clock: game.clock,
+      homeScore: game.homeScore,
+      awayScore: game.awayScore,
       source: game.source
     }));
 

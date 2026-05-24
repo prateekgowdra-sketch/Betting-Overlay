@@ -10,6 +10,8 @@ import {
 
 export interface BackendGameResponse {
   gameId: string;
+  providerGameId?: string;
+  source?: string;
   title: string;
   gameStatus: "upcoming" | "live" | "final";
   quarter: string;
@@ -25,6 +27,8 @@ export interface BackendGameResponse {
     shortName: string;
     score: number;
   };
+  homeScore?: number;
+  awayScore?: number;
   playerStats: Array<{
     playerName: string;
     team: TeamId;
@@ -64,19 +68,19 @@ export interface BackendKalshiPositionResponse {
 
 export interface BackendPlayersResponse {
   gameId: string;
+  source?: string;
   updatedAt: string;
   players: Array<{
-    playerName: string;
+    playerId: string;
+    name: string;
     team: TeamId;
-    stats: {
-      points?: number;
-      rebounds?: number;
-      assists?: number;
-      threes_made?: number;
-      steals?: number;
-      blocks?: number;
-      turnovers?: number;
-    };
+    points?: number;
+    rebounds?: number;
+    assists?: number;
+    threesMade?: number;
+    steals?: number;
+    blocks?: number;
+    turnovers?: number;
   }>;
 }
 

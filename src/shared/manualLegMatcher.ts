@@ -19,7 +19,7 @@ function findPlayerStatValue(
   statType: ManualParlayLeg extends infer _T ? string : never
 ): number | undefined {
   const normalizedPlayerName = normalizeText(playerName);
-  const matchedPlayer = playerStats.find((player) => normalizeText(player.playerName) === normalizedPlayerName);
+  const matchedPlayer = playerStats.find((player) => normalizeText(player.name) === normalizedPlayerName);
 
   if (!matchedPlayer) {
     return undefined;
@@ -27,19 +27,19 @@ function findPlayerStatValue(
 
   switch (statType) {
     case "points":
-      return matchedPlayer.stats.points;
+      return matchedPlayer.points;
     case "rebounds":
-      return matchedPlayer.stats.rebounds;
+      return matchedPlayer.rebounds;
     case "assists":
-      return matchedPlayer.stats.assists;
+      return matchedPlayer.assists;
     case "threes_made":
-      return matchedPlayer.stats.threes_made;
+      return matchedPlayer.threesMade;
     case "steals":
-      return matchedPlayer.stats.steals;
+      return matchedPlayer.steals;
     case "blocks":
-      return matchedPlayer.stats.blocks;
+      return matchedPlayer.blocks;
     case "turnovers":
-      return matchedPlayer.stats.turnovers;
+      return matchedPlayer.turnovers;
     default:
       return undefined;
   }
