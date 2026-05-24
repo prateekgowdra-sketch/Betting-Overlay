@@ -29,19 +29,13 @@ function getTeamAbbr(value) {
   return TEAM_ABBREVIATIONS[value] ?? slugify(value).slice(0, 3).toUpperCase();
 }
 
+function buildProviderGameId(eventId) {
+  return `the-odds-${eventId}`;
+}
+
 function normalizeTeamToken(value) {
   const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, "");
   return TEAM_ALIASES[cleaned] ?? cleaned;
-}
-
-function extractMatchTokens(gameId) {
-  const parts = gameId
-    .split("-")
-    .filter(Boolean)
-    .map((part) => normalizeTeamToken(part))
-    .filter((part) => part !== "demo");
-
-  return new Set(parts);
 }
 
 function getScoreForTeam(event, teamName) {
@@ -77,21 +71,12 @@ function normalizeClockLabel(gameStatus) {
 }
 
 function matchEventToGameId(gameId, events) {
-  const tokens = extractMatchTokens(gameId);
-
-  if (tokens.size === 0) {
-    return events[0] ?? null;
+  if (gameId.startsWith("the-odds-")) {
+    const providerGameId = gameId.slice("the-odds-".length);
+    return events.find((event) => event.id === providerGameId) ?? null;
   }
 
-  return (
-    events.find((event) => {
-      const homeToken = normalizeTeamToken(event.home_team ?? "");
-      const awayToken = normalizeTeamToken(event.away_team ?? "");
-      const eventTokens = new Set([homeToken, awayToken]);
-
-      return [...tokens].every((token) => eventTokens.has(token));
-    }) ?? null
-  );
+  return null;
 }
 
 export class TheOddsApiProvider {
@@ -122,7 +107,7 @@ export class TheOddsApiProvider {
       const awayScore = getScoreForTeam(event, event.away_team);
 
       return {
-        gameId: `${slugify(event.away_team)}-${slugify(event.home_team)}-${event.id}`,
+        gameId: buildProviderGameId(event.id),
         providerGameId: event.id,
         homeTeam: event.home_team,
         awayTeam: event.away_team,

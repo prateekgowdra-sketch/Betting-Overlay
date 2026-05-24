@@ -78,6 +78,19 @@ At the moment:
 
 Player-level stats are still mock-backed unless a future player-stats provider is added.
 
+To run with The Odds API:
+
+```bash
+SPORTS_DATA_PROVIDER=the_odds_api
+THE_ODDS_SPORT_KEY=basketball_nba
+THE_ODDS_API_KEY=your_key_here
+```
+
+What this currently enables:
+- real NBA games in `GET /api/live/games/today`
+- normalized game state from the backend for a selected real game
+- safe player-stats fallback with an unavailable reason when the provider does not supply box score data
+
 ## Future Read-Only Kalshi Integration
 
 The backend now includes a read-only Kalshi client layer with:
