@@ -1,60 +1,86 @@
 # Betting Overlay
 
-Betting Overlay is a Chrome extension MVP that turns live game data and Kalshi-style market positions into a lightweight on-screen companion for sports viewers.
+Betting Overlay is a Chrome extension MVP that overlays live game context, prediction-market style positions, and manual parlay tracking directly on top of a webpage.
 
-## Overview
+## Problem
 
-Watching a game while tracking prediction market positions is fragmented: the stream is in one place, market contracts are in another, and player stat context is often buried across multiple tabs. Betting Overlay solves that by placing a compact live overlay directly on top of any webpage, combining game state, tracked player legs, and Kalshi-style position context into a single view.
+Watching a game while tracking sports positions is fragmented. The stream is in one tab, stats are in another, and market context is often buried across dashboards. Betting Overlay brings those signals into a single lightweight viewing layer so a user can follow the game and their positions at the same time.
 
-This repository is structured as a serious MVP rather than a throwaway prototype. The Chrome extension UI is intentionally thin, the backend owns all live data retrieval and future API key management, and shared types keep the system ready for deeper integrations.
+## Core Features
 
-## Current MVP Features
+- Chrome Manifest V3 extension that injects an overlay onto normal webpages
+- Two overlay modes:
+  - compact top ticker
+  - detailed card view
+- Auto-updating demo game for Knicks vs Cavaliers
+- Kalshi-style position cards with progress and P/L context
+- Player prop tracking cards and ticker chips
+- Manual parlay entry with multiple leg types
+- Odds movement tracking for parlays and legs
+- Persistent overlay state with `chrome.storage.local`
+- Local backend that owns all API access and future secret management
 
-- Floating Chrome extension overlay that injects onto normal webpages
-- Draggable, minimizable, and closable sports-broadcast style UI
-- Live game scoreboard for the Knicks vs Cavaliers demo matchup
-- Kalshi-style position cards with:
-  - market title
-  - side
-  - contracts
-  - entry price
-  - current price
-  - unrealized P/L
-  - what still needs to happen
-- Player stat tracker cards for demo market legs
-- Auto-updating demo mode that simulates a live backend feed
-- Manual parlay entry mode with persistent locally saved legs
-- Toggle between demo feed mode and manual parlay mode from the popup
-- Two overlay layouts:
-  - top ticker mode
-  - detailed card mode
-- Polling architecture between the extension and local backend every 15 seconds
-- Loading and error states in the overlay
-- Backend service split for future sports API and Kalshi API replacement
+## Demo Mode
 
-## Architecture
+The default experience is a mock/demo mode designed to simulate the final product flow without requiring live third-party APIs.
 
-The current MVP follows a clean three-layer structure:
+- The extension polls the backend every 15 seconds
+- The backend advances a mock Knicks vs Cavaliers game over time
+- Score, quarter, clock, and selected player stats update automatically
+- Mock Kalshi-style market values update with the game state
 
-1. Chrome Extension UI
-   - Displays the overlay
-   - Polls backend endpoints
-   - Contains no API keys
-   - Handles loading and error presentation
+## Manual Parlay Tracking
 
-2. Backend API
-   - Serves live game state and Kalshi-style positions
-   - Uses mock services today
-   - Is designed to later connect to real NBA and Kalshi APIs
-   - Uses a provider-based sports data layer with `mock` as the default provider
+Manual mode lets a user enter and persist their own parlay without connecting a sportsbook or broker account.
 
-3. Shared Types
-   - Defines the core overlay domain model:
-     - `GameState`
-     - `PlayerStat`
-     - `KalshiPosition`
-     - `OverlayStatus`
-     - `MarketLeg`
+Supported leg types:
+- player prop
+- team moneyline
+- spread
+- game total
+- prediction-market / Kalshi-style leg
+
+For prediction-market style legs, the user can optionally add a Kalshi market ticker so the backend can look up read-only market pricing when configured.
+
+## Odds Movement Tracking
+
+The overlay tracks odds movement for manually entered parlays and legs.
+
+- American odds formatting
+- implied probability conversion
+- chance direction
+- payout better/worse direction
+- original odds to current odds comparison
+
+## Mock Live Sports Data
+
+Today’s MVP still relies on mock player stats and a simulated game timeline as the primary demo source. This keeps the repo stable for demos and portfolio presentation while preserving the final architecture:
+
+`Chrome Extension -> Local Backend -> Sports Data Provider -> Kalshi Provider`
+
+## Future Sports API Integration
+
+The backend already supports a provider-based sports data layer.
+
+- default: `mock`
+- optional live scores provider: `the_odds_api`
+
+At the moment, the live provider is only intended for normalized game-level score data. Player-level stats are still mock-backed unless a future player-stats provider is added.
+
+## Future Read-Only Kalshi Integration
+
+The backend now includes a read-only Kalshi client layer with:
+
+- balance lookup
+- positions lookup
+- market lookup
+- market list support in the client
+
+Important:
+- mock Kalshi mode is still the default
+- no trading is implemented
+- no order placement exists
+- no buy/sell actions are exposed
 
 ## Tech Stack
 
@@ -63,173 +89,114 @@ The current MVP follows a clean three-layer structure:
 - TypeScript
 - Vite
 - Node.js
-- Lightweight custom local backend server
+- Local JSON-backed backend services
 
-## Run Locally
+## Architecture
 
-1. Install dependencies:
+Text diagram:
+
+```text
+Chrome Extension UI
+  -> Local Backend API
+    -> Mock Sports Provider or Future Live Sports Provider
+    -> Mock Kalshi Provider or Future Read-Only Kalshi Provider
+```
+
+Responsibilities:
+
+1. Chrome Extension UI
+   - renders the overlay
+   - polls backend endpoints
+   - stores lightweight UI state
+   - contains no API secrets
+
+2. Backend API
+   - serves live game state
+   - serves Kalshi-style positions and market data
+   - handles provider selection
+   - owns API credential handling
+
+3. Shared Types
+   - defines common data contracts used across the UI and backend mappings
+
+## Local Setup
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Create a backend environment file:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-3. Start the local backend:
-
-```bash
-npm run backend
-```
-
-4. Build the Chrome extension in a second terminal:
+Build the extension:
 
 ```bash
 npm run build
 ```
 
-## Load the Chrome Extension
-
-1. Open `chrome://extensions`
-2. Turn on **Developer Mode**
-3. Click **Load unpacked**
-4. Select the `dist` folder
-
-Once loaded, open any standard webpage, click the extension icon, and keep the backend running on `http://localhost:3001`.
-
-## Demo Mode
-
-The current MVP ships with an auto-updating demo mode designed to simulate the final live product flow.
-
-- The extension polls the backend every 15 seconds
-- The backend advances mock Knicks vs Cavaliers game state over time
-- Scores, quarter, game clock, and tracked player stats change between polls
-- Kalshi-style position values update based on the latest mock game context
-
-This gives the project a realistic interaction model without embedding real provider credentials or depending on unstable third-party APIs during MVP development.
-
-## Sports Data Provider
-
-The backend now uses a provider-based live sports service structure.
-
-- `SPORTS_DATA_PROVIDER=mock` is the default and keeps the current demo working
-- `SPORTS_DATA_PROVIDER=the_odds_api` enables a live scores provider backed by The Odds API
-- If `SPORTS_DATA_PROVIDER` is missing or invalid, the backend falls back to `mock`
-- If `THE_ODDS_API_KEY` is missing while `SPORTS_DATA_PROVIDER=the_odds_api`, the backend logs a safe warning and falls back to `mock`
-
-Current provider files:
-- [backend/services/providers/mockSportsDataProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/mockSportsDataProvider.js)
-- [backend/services/providers/theOddsApiProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/theOddsApiProvider.js)
-- [backend/services/providers/realSportsDataProvider.js](/Users/prateekgowdra/Documents/Personal/Betting%20Overlay/backend/services/providers/realSportsDataProvider.js)
-
-The The Odds API provider reads backend-only environment variables:
-- `THE_ODDS_SPORT_KEY` defaults to `basketball_nba`
-- `THE_ODDS_API_KEY`
-- `SPORTSDATA_API_KEY`
-
-Example backend `.env`:
+Run tests:
 
 ```bash
-SPORTS_DATA_PROVIDER=the_odds_api
-THE_ODDS_SPORT_KEY=basketball_nba
-THE_ODDS_API_KEY=your_key_here
+npm test
 ```
 
-The current live scores provider normalizes team-level game state and scores through the existing backend routes:
-- `GET /api/live/game/:gameId`
-- `GET /api/live/players/:gameId`
+## Backend Setup
 
-Player-level stats are not provided by The Odds API scores endpoint, so player prop tracking will remain unavailable until a separate player-stats provider is added.
-
-## Manual Parlay Mode
-
-The extension also supports a fully local manual parlay workflow for demos and UI testing.
-
-- Add a parlay name, wager, payout, and odds from the popup
-- Track American odds movement at the parlay level and per-leg level
-- Add multiple manual legs:
-  - player props
-  - team moneylines
-  - spreads
-  - game totals
-  - Kalshi-style manual prediction market legs
-- When possible, manual legs are matched against the existing mock Knicks vs Cavaliers live game feed for live progress
-- Switch the popup's **Overlay mode** from `Demo mode` to `Manual parlay mode`
-- The overlay will render your saved parlay instead of the Knicks vs Cavaliers demo feed
-- The ticker and card views will show:
-  - wager and payout summary
-  - original odds vs current odds
-  - implied probability movement
-  - whether payout improved or worsened for the bettor
-  - live leg progress for matched player props, moneylines, spreads, and totals
-
-Manual parlay entries are stored in `chrome.storage.local`, so they persist across page refreshes and extension reloads.
-If the local backend is running, the extension will also try to persist manual parlays to a simple backend JSON file first and fall back to `chrome.storage.local` if the backend is unavailable.
-
-## Kalshi Backend Mode
-
-The backend now has a read-only Kalshi client layer while keeping `mock` as the default.
-
-- `KALSHI_MODE=mock` keeps the current mock Kalshi-style demo working
-- `KALSHI_MODE=real` enables authenticated backend-only Kalshi reads
-- `KALSHI_ENV=demo` uses Kalshi's demo Trade API
-- `KALSHI_ENV=production` uses Kalshi's production Trade API
-
-Backend-only Kalshi environment variables:
-- `KALSHI_API_KEY_ID`
-- `KALSHI_PRIVATE_KEY_PATH`
-
-These credentials never go to the extension frontend.
-
-Available backend Kalshi routes:
-- `GET /api/kalshi/balance`
-- `GET /api/kalshi/positions`
-- `GET /api/kalshi/market/:ticker`
-- `GET /api/kalshi/positions/:gameId`
-
-Safe demo setup example:
+Create a backend env file:
 
 ```bash
+cp backend/.env.example backend/.env
+```
+
+Start the backend:
+
+```bash
+npm run backend
+```
+
+Default safe configuration:
+
+```bash
+SPORTS_DATA_PROVIDER=mock
+THE_ODDS_SPORT_KEY=basketball_nba
+THE_ODDS_API_KEY=
 KALSHI_MODE=mock
 KALSHI_ENV=demo
 KALSHI_API_KEY_ID=
 KALSHI_PRIVATE_KEY_PATH=
 ```
 
-Safe real demo setup example:
+## Load the Chrome Extension
 
-```bash
-KALSHI_MODE=real
-KALSHI_ENV=demo
-KALSHI_API_KEY_ID=your_demo_key_id
-KALSHI_PRIVATE_KEY_PATH=backend/secrets/kalshi-demo.key
-```
+1. Open `chrome://extensions`
+2. Turn on `Developer Mode`
+3. Click `Load unpacked`
+4. Select the `dist` folder
 
-The real Kalshi integration is intentionally read-only for now:
-- balance lookup
-- position lookup
-- market lookup
-- market list support in the backend client
+Then open a normal webpage such as `https://example.com` and keep the backend running on `http://localhost:3001`.
 
-No order placement or trading endpoints are implemented.
+## Security and Safety
 
-## Planned Future Features
-
-- Real Kalshi API integration
-- Real NBA live stats API integration
-- Automatic market-to-player matching
-- Stream overlay improvements
-- Player highlighting
-
-## Notes
-
-- The content script is configured for normal supported webpages via Chrome extension injection
-- Chrome will not run the overlay on protected pages such as `chrome://` URLs or the Chrome Web Store
-- Future sports data API keys should live only in the backend `.env`, never in the extension bundle
+- API keys stay backend-only
+- private keys stay backend-only
+- the Chrome extension does not receive Kalshi credentials
+- mock mode remains the default for both sports data and Kalshi data
+- this project is read-only with respect to external accounts
 
 ## Disclaimer
 
-This project is a software demo and portfolio project. It is not official betting advice, does not guarantee market accuracy, and is not affiliated with, endorsed by, or sponsored by Kalshi.
+This project is a software demo and portfolio project.
+
+- It is not financial advice.
+- It is not betting advice.
+- It does not place trades.
+- It does not submit sportsbook bets.
+- It is not affiliated with, endorsed by, or sponsored by Kalshi.
+
+## Roadmap
+
+- Add a real player-stats provider to replace mock player tracking
+- Improve market-to-player matching and normalization
+- Support multiple saved manual parlays
+- Add richer read-only Kalshi market syncing in the overlay
+- Improve stream-aware overlay positioning and responsiveness
+- Add clearer empty/error/reset states for demo workflows
