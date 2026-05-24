@@ -73,6 +73,7 @@ const PORT = Number(process.env.PORT || 3001);
 const AVAILABLE_ROUTES = [
   "GET /",
   "GET /health",
+  "GET /api/live/games/today",
   "GET /api/live/game/:gameId",
   "GET /api/live/players/:gameId",
   "GET /api/kalshi/balance",
@@ -165,6 +166,11 @@ const server = createServer(async (request, response) => {
     }
 
     sendJson(response, 200, { deleted: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/live/games/today") {
+    sendJson(response, 200, liveSportsService.getTodayGames());
     return;
   }
 

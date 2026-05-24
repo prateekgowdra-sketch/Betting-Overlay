@@ -15,6 +15,7 @@ import {
   SpreadSide
 } from "../shared/types";
 import { backendApi } from "../services/backendApi";
+import type { SupportedGame } from "../services/backendApi";
 import { formatAmericanOdds } from "../shared/odds";
 
 type LegDraft = {
@@ -178,20 +179,41 @@ export function PopupApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
   const [gameTitle, setGameTitle] = useState("Loading...");
+  const [availableGames, setAvailableGames] = useState<SupportedGame[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState<LegDraft>(DEFAULT_DRAFT);
   const [draftError, setDraftError] = useState("");
 
   useEffect(() => {
-    void Promise.all([getAppSettings(), getManualParlay()]).then(([nextSettings, nextParlay]) => {
+    void Promise.all([getAppSettings(), getManualParlay(), backendApi.getTodayGames().catch(() => [])]).then(([nextSettings, nextParlay, games]) => {
       setSettings(nextSettings);
       setManualParlay(nextParlay);
-      const selectedGame =
-        backendApi.getSupportedGames().find((game) => game.id === nextSettings.selectedGameId) ??
-        backendApi.getSupportedGames()[0];
-      setGameTitle(selectedGame?.label ?? "Knicks vs Cavaliers Demo");
+      const safeGames = games.length > 0 ? games : backendApi.getSupportedGames();
+      setAvailableGames(safeGames);
+      const selectedGame = safeGames.find((game) => game.id === nextSettings.selectedGameId) ?? safeGames[0];
+      setGameTitle(selectedGame?.label ?? "Game feed unavailable");
+
+      if (selectedGame && selectedGame.id !== nextSettings.selectedGameId) {
+        void saveAppSettings({
+          ...nextSettings,
+          selectedGameId: selectedGame.id
+        }).then(() => setSettings({
+          ...nextSettings,
+          selectedGameId: selectedGame.id
+        }));
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+
+    const games = availableGames.length > 0 ? availableGames : backendApi.getSupportedGames();
+    const selectedGame = games.find((game) => game.id === settings.selectedGameId) ?? games[0];
+    setGameTitle(selectedGame?.label ?? "Game feed unavailable");
+  }, [settings, availableGames]);
 
   async function persistSettings(next: AppSettings) {
     setSettings(next);
@@ -212,7 +234,7 @@ export function PopupApp() {
   }
 
   const currentParlay = manualParlay;
-  const games = backendApi.getSupportedGames();
+  const games = availableGames.length > 0 ? availableGames : backendApi.getSupportedGames();
 
   async function addLeg() {
     const nextLeg = buildLegFromDraft(draft);

@@ -25,7 +25,10 @@ Watching a game while tracking sports positions is fragmented. The stream is in 
 The default experience is a mock/demo mode designed to simulate the final product flow without requiring live third-party APIs.
 
 - The extension polls the backend every 15 seconds
-- The backend advances a mock Knicks vs Cavaliers game over time
+- The backend exposes multiple selectable mock games through `GET /api/live/games/today`
+- The current demo includes:
+  - Knicks vs Cavaliers
+  - Thunder vs Spurs
 - Score, quarter, clock, and selected player stats update automatically
 - Mock Kalshi-style market values update with the game state
 
@@ -41,6 +44,8 @@ Supported leg types:
 - prediction-market / Kalshi-style leg
 
 For prediction-market style legs, the user can optionally add a Kalshi market ticker so the backend can look up read-only market pricing when configured.
+
+The popup also stores a `selectedGameId`, so both demo mode and manual parlay mode can follow the currently chosen game instead of a single hardcoded matchup.
 
 ## Odds Movement Tracking
 
@@ -163,6 +168,12 @@ KALSHI_MODE=mock
 KALSHI_ENV=demo
 KALSHI_API_KEY_ID=
 KALSHI_PRIVATE_KEY_PATH=
+```
+
+Available mock games route:
+
+```bash
+curl http://localhost:3001/api/live/games/today
 ```
 
 ## Load the Chrome Extension

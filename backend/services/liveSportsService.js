@@ -34,6 +34,16 @@ class LiveSportsService {
     return this.getProvider().getSupportedGames();
   }
 
+  getTodayGames() {
+    const provider = this.getProvider();
+
+    if (typeof provider.getTodayGames === "function") {
+      return provider.getTodayGames();
+    }
+
+    return provider.getSupportedGames();
+  }
+
   async getLiveGame(gameId, demoMode) {
     return this.getProvider().getLiveGame(gameId, demoMode);
   }

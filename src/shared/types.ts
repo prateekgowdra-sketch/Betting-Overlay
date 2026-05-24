@@ -1,4 +1,4 @@
-export type TeamId = "NYK" | "CLE";
+export type TeamId = "NYK" | "CLE" | "OKC" | "SAS";
 export type StatType =
   | "points"
   | "rebounds"

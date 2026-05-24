@@ -224,6 +224,14 @@ class KalshiService {
   }
 
   getPositionsForGame(gameId, game) {
+    if (gameId === "thunder-spurs-demo") {
+      return this.getThunderSpursPositions(gameId, game);
+    }
+
+    return this.getKnicksCavsPositions(gameId, game);
+  }
+
+  getKnicksCavsPositions(gameId, game) {
     const teamMarketTitle = "Will the Knicks beat the Cavaliers?";
     const brunsonMarketTitle = "Will Jalen Brunson score 25+ points?";
     const parsedTeamMarket = parseKalshiMarketTitle(teamMarketTitle);
@@ -276,6 +284,64 @@ class KalshiService {
               }
             : undefined,
           parsedMarket: parsedBrunsonMarket
+        }
+      ]
+    };
+  }
+
+  getThunderSpursPositions(gameId, game) {
+    const teamMarketTitle = "Will the Thunder beat the Spurs?";
+    const shaiMarketTitle = "Will Shai Gilgeous-Alexander score 30+ points?";
+    const parsedTeamMarket = parseKalshiMarketTitle(teamMarketTitle);
+    const parsedShaiMarket = parseKalshiMarketTitle(shaiMarketTitle);
+    const shaiPoints = currentByPlayer(game, "Shai Gilgeous-Alexander", "points");
+    const margin = game.homeTeam.score - game.awayTeam.score;
+    const shaiRemaining = Math.max(0, 30 - shaiPoints);
+
+    return {
+      gameId,
+      updatedAt: game.updatedAt,
+      positions: [
+        {
+          id: "thunder-moneyline",
+          marketTitle: teamMarketTitle,
+          platform: "Kalshi",
+          side: "YES",
+          contracts: 8,
+          entryPriceCents: 54,
+          currentPriceCents: margin >= 8 ? 78 : margin >= 4 ? 64 : margin > 0 ? 57 : 39,
+          whatNeedsToHappen:
+            margin > 0
+              ? "The Thunder need to stay in front through the final buzzer."
+              : `The Thunder need to erase a ${Math.abs(margin)}-point deficit and win.`,
+          parsedMarket: parsedTeamMarket
+        },
+        {
+          id: "sga-30",
+          marketTitle: shaiMarketTitle,
+          platform: "Kalshi",
+          side: "YES",
+          contracts: 4,
+          entryPriceCents: 51,
+          currentPriceCents:
+            shaiRemaining === 0 ? 90 : shaiPoints >= 28 ? 72 : shaiPoints >= 22 ? 61 : 46,
+          whatNeedsToHappen:
+            shaiRemaining === 0
+              ? "Shai has already cleared 30 points."
+              : `${shaiRemaining} more point${shaiRemaining === 1 ? "" : "s"} from Shai to cash.`,
+          marketLeg: parsedShaiMarket.marketLeg
+            ? {
+                ...parsedShaiMarket.marketLeg,
+                current: shaiPoints,
+                progress: clampPercent((shaiPoints / parsedShaiMarket.marketLeg.target) * 100),
+                status: shaiPoints >= parsedShaiMarket.marketLeg.target ? "won" : "sweating",
+                whatNeedsToHappen:
+                  shaiRemaining === 0
+                    ? "Shai has already cleared 30 points."
+                    : `${shaiRemaining} more point${shaiRemaining === 1 ? "" : "s"} from Shai to cash.`
+              }
+            : undefined,
+          parsedMarket: parsedShaiMarket
         }
       ]
     };

@@ -1,4 +1,4 @@
-import { DEMO_GAME_ID, SUPPORTED_GAMES, demoTimeline } from "../../data/demoTimeline.js";
+import { DEMO_TIMELINES_BY_GAME, SUPPORTED_GAMES } from "../../data/demoTimeline.js";
 
 const sequenceIndexByGame = new Map();
 const activeSnapshotByGame = new Map();
@@ -6,13 +6,25 @@ const SNAPSHOT_WINDOW_MS = 5000;
 
 function getCurrentSnapshot(gameId) {
   const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
-  return demoTimeline[Math.min(currentIndex, demoTimeline.length - 1)];
+  const timeline = DEMO_TIMELINES_BY_GAME[gameId];
+
+  if (!timeline) {
+    return null;
+  }
+
+  return timeline[Math.min(currentIndex, timeline.length - 1)];
 }
 
 function advanceSnapshot(gameId, demoMode) {
+  const timeline = DEMO_TIMELINES_BY_GAME[gameId];
+
+  if (!timeline) {
+    return;
+  }
+
   const currentIndex = sequenceIndexByGame.get(gameId) ?? 0;
 
-  if (demoMode && currentIndex < demoTimeline.length - 1) {
+  if (demoMode && currentIndex < timeline.length - 1) {
     sequenceIndexByGame.set(gameId, currentIndex + 1);
     return;
   }
@@ -28,6 +40,10 @@ function getSnapshotForRequest(gameId, demoMode) {
   }
 
   const snapshot = getCurrentSnapshot(gameId);
+
+  if (!snapshot) {
+    return null;
+  }
 
   activeSnapshotByGame.set(gameId, {
     snapshot,
@@ -47,12 +63,32 @@ export class MockSportsDataProvider {
     return SUPPORTED_GAMES;
   }
 
+  getTodayGames() {
+    return SUPPORTED_GAMES.map((game) => {
+      const snapshot = getCurrentSnapshot(game.id);
+
+      return {
+        gameId: game.id,
+        providerGameId: game.providerGameId,
+        homeTeam: game.homeTeam,
+        awayTeam: game.awayTeam,
+        homeAbbr: game.homeAbbr,
+        awayAbbr: game.awayAbbr,
+        scheduledTime: game.scheduledTime,
+        status: snapshot?.gameStatus ?? "upcoming",
+        period: snapshot?.quarter ?? "Pregame",
+        clock: snapshot?.gameClock ?? "--:--",
+        source: game.source
+      };
+    });
+  }
+
   getLiveGame(gameId, demoMode) {
-    if (gameId !== DEMO_GAME_ID) {
+    const snapshot = getSnapshotForRequest(gameId, demoMode);
+
+    if (!snapshot) {
       return null;
     }
-
-    const snapshot = getSnapshotForRequest(gameId, demoMode);
 
     return {
       gameId,

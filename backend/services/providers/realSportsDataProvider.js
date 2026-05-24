@@ -7,6 +7,10 @@ export class RealSportsDataProvider {
     return [];
   }
 
+  getTodayGames() {
+    return [];
+  }
+
   async getLiveGame() {
     return null;
   }

@@ -92,6 +92,10 @@ export class TheOddsApiProvider {
     return this.fallbackProvider.getSupportedGames();
   }
 
+  getTodayGames() {
+    return this.fallbackProvider.getTodayGames();
+  }
+
   getSportKey() {
     return process.env.THE_ODDS_SPORT_KEY || DEFAULT_SPORT_KEY;
   }

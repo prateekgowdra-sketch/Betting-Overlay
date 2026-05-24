@@ -8,26 +8,89 @@ import {
 export interface SupportedGame {
   id: string;
   label: string;
+  providerGameId?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  homeAbbr?: string;
+  awayAbbr?: string;
+  scheduledTime?: string;
+  status?: string;
+  period?: string;
+  clock?: string;
+  source?: "mock" | "real";
 }
 
 const API_BASE_URL = "http://localhost:3001/api";
-
-const SUPPORTED_GAMES: SupportedGame[] = [
+const FALLBACK_GAMES: SupportedGame[] = [
   {
     id: "knicks-cavs-demo",
-    label: "Knicks vs Cavaliers Demo"
+    label: "CLE @ NYK",
+    homeTeam: "New York Knicks",
+    awayTeam: "Cleveland Cavaliers",
+    homeAbbr: "NYK",
+    awayAbbr: "CLE",
+    source: "mock"
+  },
+  {
+    id: "thunder-spurs-demo",
+    label: "SAS @ OKC",
+    homeTeam: "Oklahoma City Thunder",
+    awayTeam: "San Antonio Spurs",
+    homeAbbr: "OKC",
+    awayAbbr: "SAS",
+    source: "mock"
   }
 ];
 
 class BackendApi {
   private demoMode = true;
+  private supportedGames: SupportedGame[] = FALLBACK_GAMES;
 
   setDemoMode(enabled: boolean): void {
     this.demoMode = enabled;
   }
 
   getSupportedGames(): SupportedGame[] {
-    return SUPPORTED_GAMES;
+    return this.supportedGames;
+  }
+
+  async getTodayGames(): Promise<SupportedGame[]> {
+    const response = await fetch(this.buildUrl("/live/games/today"));
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch available games");
+    }
+
+    const games = (await response.json()) as Array<{
+      gameId: string;
+      providerGameId?: string;
+      homeTeam: string;
+      awayTeam: string;
+      homeAbbr: string;
+      awayAbbr: string;
+      scheduledTime: string;
+      status: string;
+      period: string;
+      clock: string;
+      source: "mock" | "real";
+    }>;
+
+    this.supportedGames = games.map((game) => ({
+      id: game.gameId,
+      label: `${game.awayAbbr} @ ${game.homeAbbr}`,
+      providerGameId: game.providerGameId,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      homeAbbr: game.homeAbbr,
+      awayAbbr: game.awayAbbr,
+      scheduledTime: game.scheduledTime,
+      status: game.status,
+      period: game.period,
+      clock: game.clock,
+      source: game.source
+    }));
+
+    return this.supportedGames;
   }
 
   async getGameState(gameId: string): Promise<BackendGameResponse> {
