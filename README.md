@@ -93,6 +93,7 @@ BALLDONTLIE_API_KEY=your_key_here
 
 What this currently enables:
 - real NBA games in `GET /api/live/games/today`
+- a useful date window when there are no NBA games on the current date
 - normalized real game state from the backend for a selected game
 - normalized player game stats for points, rebounds, assists, threes made, steals, blocks, and turnovers
 - backend-only key handling through the `Authorization` header

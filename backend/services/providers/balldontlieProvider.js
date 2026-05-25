@@ -1,7 +1,19 @@
 const BALLDONTLIE_BASE_URL = "https://api.balldontlie.io/v1";
+const DEFAULT_LOOKBACK_DAYS = 1;
+const DEFAULT_LOOKAHEAD_DAYS = 3;
+
+function addDays(date, offsetDays) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + offsetDays);
+  return nextDate;
+}
+
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
 
 function formatTodayDate(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  return formatDate(date);
 }
 
 function buildGameId(gameId) {
@@ -78,9 +90,11 @@ function normalizeClock(game) {
   return time || String(game.status ?? "").trim() || "Live";
 }
 
-function normalizeGameListItem(game) {
-  const updatedAt = new Date().toISOString();
+function getUpdatedAt(game) {
+  return game.updated_at ?? game.datetime ?? new Date().toISOString();
+}
 
+function normalizeGameListItem(game) {
   return {
     gameId: buildGameId(game.id),
     providerGameId: String(game.id),
@@ -95,12 +109,12 @@ function normalizeGameListItem(game) {
     homeScore: Number(game.home_team_score ?? 0),
     awayScore: Number(game.visitor_team_score ?? 0),
     source: "real",
-    updatedAt
+    updatedAt: getUpdatedAt(game)
   };
 }
 
 function normalizeGameState(gameId, game) {
-  const updatedAt = new Date().toISOString();
+  const updatedAt = getUpdatedAt(game);
 
   return {
     gameId,
@@ -158,6 +172,51 @@ function normalizePlayers(gameId, stats) {
   };
 }
 
+function sortGamesByScheduledTime(games) {
+  return [...games].sort((left, right) => {
+    const leftTime = new Date(left.datetime ?? 0).getTime();
+    const rightTime = new Date(right.datetime ?? 0).getTime();
+    return leftTime - rightTime;
+  });
+}
+
+export function buildDateWindow(baseDate = new Date(), lookbackDays = DEFAULT_LOOKBACK_DAYS, lookaheadDays = DEFAULT_LOOKAHEAD_DAYS) {
+  const dates = [];
+
+  for (let offset = -lookbackDays; offset <= lookaheadDays; offset += 1) {
+    dates.push(formatDate(addDays(baseDate, offset)));
+  }
+
+  return dates;
+}
+
+export function selectRelevantGamesByWindow(groupedGames, preferredDate = formatTodayDate()) {
+  const todaysGames = groupedGames[preferredDate] ?? [];
+
+  if (todaysGames.length > 0) {
+    return sortGamesByScheduledTime(todaysGames);
+  }
+
+  const futureDates = Object.keys(groupedGames)
+    .filter((date) => date > preferredDate && (groupedGames[date]?.length ?? 0) > 0)
+    .sort();
+
+  if (futureDates.length > 0) {
+    return sortGamesByScheduledTime(groupedGames[futureDates[0]]);
+  }
+
+  const pastDates = Object.keys(groupedGames)
+    .filter((date) => date < preferredDate && (groupedGames[date]?.length ?? 0) > 0)
+    .sort()
+    .reverse();
+
+  if (pastDates.length > 0) {
+    return sortGamesByScheduledTime(groupedGames[pastDates[0]]);
+  }
+
+  return [];
+}
+
 export class BalldontlieProvider {
   constructor({ fallbackProvider }) {
     this.fallbackProvider = fallbackProvider;
@@ -188,13 +247,19 @@ export class BalldontlieProvider {
     this.loggedMissingKey = true;
   }
 
-  async getTodayGames() {
-    const games = await this.fetchTodayGames();
+  logGamesResult(count) {
+    console.log(`[liveSports] provider=balldontlie gamesReturned=${count}`);
+  }
 
-    if (!games) {
+  async getTodayGames() {
+    const groupedGames = await this.fetchGamesForDateWindow();
+
+    if (!groupedGames) {
       return this.fallbackProvider.getTodayGames();
     }
 
+    const games = selectRelevantGamesByWindow(groupedGames, formatTodayDate());
+    this.logGamesResult(games.length);
     return games.map(normalizeGameListItem);
   }
 
@@ -236,7 +301,7 @@ export class BalldontlieProvider {
     return normalizePlayers(gameId, stats);
   }
 
-  async fetchTodayGames() {
+  async fetchGamesForDateWindow() {
     const apiKey = this.getApiKey();
 
     if (!apiKey) {
@@ -244,24 +309,16 @@ export class BalldontlieProvider {
       return null;
     }
 
-    const url = new URL(`${BALLDONTLIE_BASE_URL}/games`);
-    url.searchParams.append("dates[]", formatTodayDate());
-    url.searchParams.set("per_page", "100");
+    const dateWindow = buildDateWindow();
+    const groupedGames = {};
 
     try {
-      const response = await fetch(url, {
-        headers: {
-          Authorization: process.env.BALLDONTLIE_API_KEY
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`BALLDONTLIE responded with ${response.status}`);
+      for (const date of dateWindow) {
+        groupedGames[date] = await this.fetchGamesForDate(date);
       }
 
       this.loggedFetchFailure = false;
-      const payload = await response.json();
-      return Array.isArray(payload.data) ? payload.data : [];
+      return groupedGames;
     } catch (error) {
       if (!this.loggedFetchFailure) {
         const message = error instanceof Error ? error.message : "Unknown error";
@@ -273,6 +330,25 @@ export class BalldontlieProvider {
 
       return null;
     }
+  }
+
+  async fetchGamesForDate(date) {
+    const url = new URL(`${BALLDONTLIE_BASE_URL}/games`);
+    url.searchParams.append("dates[]", date);
+    url.searchParams.set("per_page", "100");
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: process.env.BALLDONTLIE_API_KEY
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`BALLDONTLIE responded with ${response.status}`);
+    }
+
+    const payload = await response.json();
+    return Array.isArray(payload.data) ? payload.data : [];
   }
 
   async fetchGame(providerGameId) {
