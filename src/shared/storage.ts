@@ -47,9 +47,37 @@ const DEFAULT_MANUAL_PARLAY: ManualParlay = {
   updatedAt: new Date().toISOString()
 };
 
+function isExtensionContextInvalidated(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Extension context invalidated");
+}
+
+async function safeStorageGet<T>(key: string): Promise<T | undefined> {
+  try {
+    const stored = await chrome.storage.local.get(key);
+    return stored[key] as T | undefined;
+  } catch (error) {
+    if (isExtensionContextInvalidated(error)) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+async function safeStorageSet(value: Record<string, unknown>): Promise<void> {
+  try {
+    await chrome.storage.local.set(value);
+  } catch (error) {
+    if (isExtensionContextInvalidated(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function getLocalManualParlay(): Promise<ManualParlay> {
-  const stored = await chrome.storage.local.get(MANUAL_PARLAY_KEY);
-  const existing = stored[MANUAL_PARLAY_KEY] as ManualParlay | undefined;
+  const existing = await safeStorageGet<ManualParlay>(MANUAL_PARLAY_KEY);
 
   if (existing) {
     return {
@@ -59,7 +87,7 @@ async function getLocalManualParlay(): Promise<ManualParlay> {
     };
   }
 
-  await chrome.storage.local.set({ [MANUAL_PARLAY_KEY]: DEFAULT_MANUAL_PARLAY });
+  await safeStorageSet({ [MANUAL_PARLAY_KEY]: DEFAULT_MANUAL_PARLAY });
   return DEFAULT_MANUAL_PARLAY;
 }
 
@@ -72,7 +100,7 @@ async function saveLocalManualParlay(parlay: ManualParlay): Promise<ManualParlay
     updatedAt: new Date().toISOString()
   };
 
-  await chrome.storage.local.set({
+  await safeStorageSet({
     [MANUAL_PARLAY_KEY]: nextParlay
   });
 
@@ -126,8 +154,7 @@ async function updateBackendParlay(parlay: ManualParlay): Promise<ManualParlay> 
 }
 
 export async function getOverlayUiState(): Promise<OverlayUiState> {
-  const stored = await chrome.storage.local.get(OVERLAY_UI_KEY);
-  const existing = stored[OVERLAY_UI_KEY] as OverlayUiState | undefined;
+  const existing = await safeStorageGet<OverlayUiState>(OVERLAY_UI_KEY);
 
   if (existing && existing.version === OVERLAY_UI_VERSION) {
     return {
@@ -136,17 +163,16 @@ export async function getOverlayUiState(): Promise<OverlayUiState> {
     };
   }
 
-  await chrome.storage.local.set({ [OVERLAY_UI_KEY]: DEFAULT_OVERLAY_UI_STATE });
+  await safeStorageSet({ [OVERLAY_UI_KEY]: DEFAULT_OVERLAY_UI_STATE });
   return DEFAULT_OVERLAY_UI_STATE;
 }
 
 export async function saveOverlayUiState(state: OverlayUiState): Promise<void> {
-  await chrome.storage.local.set({ [OVERLAY_UI_KEY]: state });
+  await safeStorageSet({ [OVERLAY_UI_KEY]: state });
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  const stored = await chrome.storage.local.get(APP_SETTINGS_KEY);
-  const existing = stored[APP_SETTINGS_KEY] as AppSettings | undefined;
+  const existing = await safeStorageGet<AppSettings>(APP_SETTINGS_KEY);
 
   if (existing) {
     return {
@@ -155,12 +181,12 @@ export async function getAppSettings(): Promise<AppSettings> {
     };
   }
 
-  await chrome.storage.local.set({ [APP_SETTINGS_KEY]: DEFAULT_APP_SETTINGS });
+  await safeStorageSet({ [APP_SETTINGS_KEY]: DEFAULT_APP_SETTINGS });
   return DEFAULT_APP_SETTINGS;
 }
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
-  await chrome.storage.local.set({ [APP_SETTINGS_KEY]: settings });
+  await safeStorageSet({ [APP_SETTINGS_KEY]: settings });
 }
 
 export async function getManualParlay(): Promise<ManualParlay> {

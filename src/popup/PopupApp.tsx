@@ -15,7 +15,7 @@ import {
   SpreadSide
 } from "../shared/types";
 import { backendApi } from "../services/backendApi";
-import type { SupportedGame } from "../services/backendApi";
+import type { BackendStatusResponse, SupportedGame } from "../services/backendApi";
 import { formatAmericanOdds } from "../shared/odds";
 
 type LegDraft = {
@@ -180,14 +180,61 @@ export function PopupApp() {
   const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
   const [gameTitle, setGameTitle] = useState("Loading...");
   const [availableGames, setAvailableGames] = useState<SupportedGame[]>([]);
+  const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState<LegDraft>(DEFAULT_DRAFT);
   const [draftError, setDraftError] = useState("");
 
+  function formatGameStatus(game?: SupportedGame): string {
+    if (!game) {
+      return "Unavailable";
+    }
+
+    if (game.status === "live") {
+      return `${game.period ?? "Live"} ${game.clock ?? ""}`.trim();
+    }
+
+    if (game.status === "final") {
+      return "Final";
+    }
+
+    return game.scheduledTime
+      ? new Date(game.scheduledTime).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit"
+        })
+      : "Upcoming";
+  }
+
+  function formatGameOptionLabel(game: SupportedGame): string {
+    const sourceLabel = game.source === "real" ? "Real" : "Mock";
+    return `${game.awayAbbr} @ ${game.homeAbbr} • ${formatGameStatus(game)} • ${sourceLabel}`;
+  }
+
+  function formatProviderLabel(provider?: string): string {
+    switch (provider) {
+      case "balldontlie":
+        return "BALLDONTLIE";
+      case "the_odds_api":
+        return "The Odds API";
+      case "sportsdataio":
+        return "SportsDataIO";
+      case "mock":
+      default:
+        return "Mock Feed";
+    }
+  }
+
   useEffect(() => {
-    void Promise.all([getAppSettings(), getManualParlay(), backendApi.getTodayGames().catch(() => [])]).then(([nextSettings, nextParlay, games]) => {
+    void Promise.all([
+      getAppSettings(),
+      getManualParlay(),
+      backendApi.getTodayGames().catch(() => []),
+      backendApi.getBackendStatus().catch(() => null)
+    ]).then(([nextSettings, nextParlay, games, nextBackendStatus]) => {
       setSettings(nextSettings);
       setManualParlay(nextParlay);
+      setBackendStatus(nextBackendStatus);
       const safeGames = games.length > 0 ? games : backendApi.getSupportedGames();
       setAvailableGames(safeGames);
       const selectedGame = safeGames.find((game) => game.id === nextSettings.selectedGameId) ?? safeGames[0];
@@ -197,10 +244,12 @@ export function PopupApp() {
         void saveAppSettings({
           ...nextSettings,
           selectedGameId: selectedGame.id
-        }).then(() => setSettings({
-          ...nextSettings,
-          selectedGameId: selectedGame.id
-        }));
+        }).then(() =>
+          setSettings({
+            ...nextSettings,
+            selectedGameId: selectedGame.id
+          })
+        );
       }
     });
   }, []);
@@ -235,6 +284,8 @@ export function PopupApp() {
 
   const currentParlay = manualParlay;
   const games = availableGames.length > 0 ? availableGames : backendApi.getSupportedGames();
+  const selectedGame = games.find((game) => game.id === settings.selectedGameId) ?? games[0];
+  const isMockProvider = (backendStatus?.sportsDataProvider ?? "mock") === "mock";
 
   async function addLeg() {
     const nextLeg = buildLegFromDraft(draft);
@@ -263,10 +314,13 @@ export function PopupApp() {
     <div className="popup-shell">
       <header className="hero">
         <div>
-          <div className="eyebrow">Live Stats MVP</div>
+          <div className="eyebrow">Live Feed Overlay</div>
           <h1>Kalshi Live Overlay</h1>
-          <p>Switch between the live demo feed and a manually entered parlay without changing the extension build.</p>
-          <p>The overlay keeps demo mode and manual parlay mode side by side, both persisted locally.</p>
+          <p>Switch between the live backend game feed and a manually entered parlay without changing the extension build.</p>
+          <p>
+            Provider: <strong>{formatProviderLabel(backendStatus?.sportsDataProvider)}</strong>
+            {selectedGame ? ` · Selected game: ${formatGameOptionLabel(selectedGame)}` : ""}
+          </p>
         </div>
       </header>
 
@@ -288,7 +342,7 @@ export function PopupApp() {
                 })
               }
             >
-              <option value="demo">Demo mode</option>
+              <option value="demo">Live game feed</option>
               <option value="manual">Manual parlay mode</option>
             </select>
           </label>
@@ -306,25 +360,34 @@ export function PopupApp() {
             >
               {games.map((game) => (
                 <option key={game.id} value={game.id}>
-                  {game.label}
+                  {formatGameOptionLabel(game)}
                 </option>
               ))}
             </select>
           </label>
 
-          <label className="toggle-row">
-            <span>Demo mode sequence</span>
-            <input
-              type="checkbox"
-              checked={settings.demoMode}
-              onChange={(event) =>
-                void persistSettings({
-                  ...settings,
-                  demoMode: event.target.checked
-                })
-              }
-            />
-          </label>
+          {isMockProvider ? (
+            <label className="toggle-row">
+              <span>Mock timeline advance</span>
+              <input
+                type="checkbox"
+                checked={settings.demoMode}
+                onChange={(event) =>
+                  void persistSettings({
+                    ...settings,
+                    demoMode: event.target.checked
+                  })
+                }
+              />
+            </label>
+          ) : (
+            <div className="provider-summary-row">
+              <span>Feed source</span>
+              <span className={`status-pill ${selectedGame?.source === "real" ? "real" : "mock"}`}>
+                {selectedGame?.source === "real" ? "Real game feed" : "Mock fallback"}
+              </span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -636,7 +699,7 @@ export function PopupApp() {
             <div className="position-note">
               {settings.dataMode === "demo"
                 ? "The overlay auto-syncs score, clock, and tracked player stats from the local backend API routes."
-                : "The overlay renders your locally saved manual parlay and legs instead of the demo Knicks vs Cavaliers feed."}
+                : "The overlay renders your locally saved manual parlay and legs instead of the live backend game feed."}
             </div>
             <div className="small-copy">
               {settings.dataMode === "demo"

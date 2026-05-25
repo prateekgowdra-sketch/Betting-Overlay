@@ -33,6 +33,10 @@ import { BackendPlayersResponse } from "../shared/overlayState";
 import { BackendKalshiMarketResponse } from "../shared/overlayState";
 import { buildManualLegOverlayChips } from "../shared/manualLegMatcher";
 
+function isExtensionContextInvalidated(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Extension context invalidated");
+}
+
 function formatUpdatedTime(timestamp?: string): string {
   if (!timestamp) {
     return "--:--";
@@ -351,13 +355,19 @@ export function OverlayApp() {
   const syncInFlightRef = useRef(false);
 
   useEffect(() => {
-    void Promise.all([getOverlayUiState(), getAppSettings(), getManualParlay()]).then(
-      ([nextUiState, nextSettings, nextManualParlay]) => {
+    void Promise.all([getOverlayUiState(), getAppSettings(), getManualParlay()])
+      .then(([nextUiState, nextSettings, nextManualParlay]) => {
         setUiState(nextUiState);
         setSettings(nextSettings);
         setManualParlay(nextManualParlay);
-      }
-    );
+      })
+      .catch((error) => {
+        if (isExtensionContextInvalidated(error)) {
+          return;
+        }
+
+        throw error;
+      });
 
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
@@ -380,10 +390,22 @@ export function OverlayApp() {
       }
     };
 
-    chrome.storage.onChanged.addListener(listener);
+    try {
+      chrome.storage.onChanged.addListener(listener);
+    } catch (error) {
+      if (!isExtensionContextInvalidated(error)) {
+        throw error;
+      }
+    }
 
     return () => {
-      chrome.storage.onChanged.removeListener(listener);
+      try {
+        chrome.storage.onChanged.removeListener(listener);
+      } catch (error) {
+        if (!isExtensionContextInvalidated(error)) {
+          throw error;
+        }
+      }
     };
   }, []);
 

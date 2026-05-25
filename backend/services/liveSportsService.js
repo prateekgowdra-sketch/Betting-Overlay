@@ -1,3 +1,4 @@
+import { BalldontlieProvider } from "./providers/balldontlieProvider.js";
 import { MockSportsProvider } from "./providers/mockSportsProvider.js";
 import { SportsDataIoProvider } from "./providers/sportsDataIoProvider.js";
 import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
@@ -5,6 +6,7 @@ import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
 const mockProvider = new MockSportsProvider();
 const PROVIDERS = {
   mock: mockProvider,
+  balldontlie: new BalldontlieProvider({ fallbackProvider: mockProvider }),
   the_odds_api: new TheOddsApiProvider({ fallbackProvider: mockProvider }),
   sportsdataio: new SportsDataIoProvider({ fallbackProvider: mockProvider })
 };

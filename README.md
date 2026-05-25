@@ -68,15 +68,34 @@ Today’s MVP still relies on mock player stats and a simulated game timeline as
 The backend already supports a provider-based sports data layer.
 
 - default: `mock`
+- optional live game + player stats provider: `balldontlie`
 - optional live scores provider: `the_odds_api`
-- placeholder provider path for future integration: `sportsdataio`
+- optional player-stat oriented provider path: `sportsdataio`
 
 At the moment:
 - `mock` powers the full demo experience
+- `balldontlie` is wired for real NBA games and real player game stats using a backend-only API key
 - `the_odds_api` is wired for normalized game-level score data
-- `sportsdataio` is scaffolded as a future provider path and currently falls back safely to mock
+- `sportsdataio` is wired as the player-stat capable provider path for real NBA box score data
 
-Player-level stats are still mock-backed unless a future player-stats provider is added.
+Player props require a player-stat capable provider. In this codebase:
+- `balldontlie` can supply real NBA game lists, game state, and player game stats through the local backend
+- `the_odds_api` can support real game selection and scores
+- `sportsdataio` is the provider intended to supply real player stats for points, rebounds, assists, threes, steals, blocks, and turnovers
+- if a real provider key is missing or the API fails, the backend falls back safely instead of crashing the extension
+
+To run with BALLDONTLIE:
+
+```bash
+SPORTS_DATA_PROVIDER=balldontlie
+BALLDONTLIE_API_KEY=your_key_here
+```
+
+What this currently enables:
+- real NBA games in `GET /api/live/games/today`
+- normalized real game state from the backend for a selected game
+- normalized player game stats for points, rebounds, assists, threes made, steals, blocks, and turnovers
+- backend-only key handling through the `Authorization` header
 
 To run with The Odds API:
 
@@ -90,6 +109,19 @@ What this currently enables:
 - real NBA games in `GET /api/live/games/today`
 - normalized game state from the backend for a selected real game
 - safe player-stats fallback with an unavailable reason when the provider does not supply box score data
+
+To run with SportsDataIO:
+
+```bash
+SPORTS_DATA_PROVIDER=sportsdataio
+SPORTSDATAIO_API_KEY=your_key_here
+```
+
+What this currently enables:
+- real NBA games from SportsDataIO schedules
+- normalized real game state
+- real player box-score stats when available through the SportsDataIO box score feed
+- safe fallback or unavailable player-stat state when the API key is missing or a request fails
 
 ## Future Read-Only Kalshi Integration
 
@@ -181,6 +213,7 @@ Default safe configuration:
 
 ```bash
 SPORTS_DATA_PROVIDER=mock
+BALLDONTLIE_API_KEY=
 THE_ODDS_SPORT_KEY=basketball_nba
 THE_ODDS_API_KEY=
 SPORTSDATAIO_API_KEY=
@@ -209,6 +242,7 @@ Then open a normal webpage such as `https://example.com` and keep the backend ru
 
 - API keys stay backend-only
 - private keys stay backend-only
+- `BALLDONTLIE_API_KEY` belongs only in `backend/.env`
 - the Chrome extension does not receive Kalshi credentials
 - mock mode remains the default for both sports data and Kalshi data
 - this project is read-only with respect to external accounts
