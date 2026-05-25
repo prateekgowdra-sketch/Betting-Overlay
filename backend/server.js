@@ -1,39 +1,27 @@
 import { createServer } from "http";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import { kalshiService } from "./services/kalshiService.js";
 import { liveSportsService } from "./services/liveSportsService.js";
 import { manualParlayStorageService } from "./services/manualParlayStorageService.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ENV_PATH = join(__dirname, ".env");
+
 function loadEnv() {
-  const envPath = join(process.cwd(), "backend", ".env");
+  dotenv.config({ path: ENV_PATH, quiet: true });
+}
 
-  if (!existsSync(envPath)) {
-    return;
-  }
+function hasBalldontlieKey() {
+  return Boolean(process.env.BALLDONTLIE_API_KEY?.trim());
+}
 
-  const lines = readFileSync(envPath, "utf8").split("\n");
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
-  }
+function logStartupConfig() {
+  console.log("[backend] Startup config");
+  console.log(`[backend] sportsDataProvider=${liveSportsService.getProviderName()}`);
+  console.log(`[backend] balldontlieKeyPresent=${hasBalldontlieKey()}`);
 }
 
 function setCorsHeaders(response) {
@@ -68,6 +56,7 @@ async function readJsonBody(request) {
 }
 
 loadEnv();
+logStartupConfig();
 
 const PORT = Number(process.env.PORT || 3001);
 const AVAILABLE_ROUTES = [

@@ -209,6 +209,15 @@ Start the backend:
 npm run backend
 ```
 
+You can also start it from inside the backend folder:
+
+```bash
+cd backend
+node server.js
+```
+
+`backend/.env` is loaded relative to `backend/server.js`, so the same env file works in either launch style.
+
 Default safe configuration:
 
 ```bash
@@ -222,6 +231,12 @@ KALSHI_ENV=demo
 KALSHI_API_KEY_ID=
 KALSHI_PRIVATE_KEY_PATH=
 ```
+
+When the backend starts, it logs only:
+- the selected sports data provider
+- whether `BALLDONTLIE_API_KEY` exists: `true` or `false`
+
+It never prints the key itself.
 
 Available mock games route:
 
