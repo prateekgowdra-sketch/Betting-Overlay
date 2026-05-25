@@ -108,6 +108,16 @@ button {
   padding: 6px 10px;
 }
 
+.status-pill.real {
+  background: rgba(97, 235, 174, 0.16);
+  color: #61ebae;
+}
+
+.status-pill.mock {
+  background: rgba(240, 180, 76, 0.14);
+  color: #f0b44c;
+}
+
 .saving-pill {
   background: rgba(91, 176, 255, 0.16);
   color: #8bc7ff;
@@ -166,6 +176,16 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.provider-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: #bdd2e6;
+  font-size: 12px;
+  padding: 4px 0 0;
 }
 
 .toggle-row input[type="checkbox"] {

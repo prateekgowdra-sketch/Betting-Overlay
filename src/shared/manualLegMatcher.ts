@@ -9,40 +9,109 @@ import {
 import { BackendKalshiMarketResponse, BackendPlayersResponse } from "./overlayState";
 import { formatAmericanOdds, getOddsMovement } from "./odds";
 
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ");
+function normalizeText(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ");
 }
 
-function findPlayerStatValue(
-  playerStats: BackendPlayersResponse["players"],
-  playerName: string,
+function lastName(value: string): string {
+  const parts = normalizeText(value).split(" ").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+function normalizeTeamToken(value: string): string {
+  const normalized = normalizeText(value).replace(/\s+/g, "");
+  const aliases: Record<string, string> = {
+    nyk: "knicks",
+    knicks: "knicks",
+    cle: "cavaliers",
+    cavs: "cavaliers",
+    cavaliers: "cavaliers",
+    okc: "thunder",
+    thunder: "thunder",
+    sas: "spurs",
+    spurs: "spurs"
+  };
+
+  return aliases[normalized] ?? normalized;
+}
+
+function teamMatches(candidateTeam: string, requestedTeam: string): boolean {
+  const candidate = normalizeTeamToken(candidateTeam);
+  const requested = normalizeTeamToken(requestedTeam);
+  return candidate === requested || candidate.includes(requested) || requested.includes(candidate);
+}
+
+function getPlayerStatByType(
+  player: BackendPlayersResponse["players"][number],
   statType: ManualParlayLeg extends infer _T ? string : never
 ): number | undefined {
-  const normalizedPlayerName = normalizeText(playerName);
-  const matchedPlayer = playerStats.find((player) => normalizeText(player.name) === normalizedPlayerName);
-
-  if (!matchedPlayer) {
-    return undefined;
-  }
-
   switch (statType) {
     case "points":
-      return matchedPlayer.points;
+      return player.points;
     case "rebounds":
-      return matchedPlayer.rebounds;
+      return player.rebounds;
     case "assists":
-      return matchedPlayer.assists;
+      return player.assists;
     case "threes_made":
-      return matchedPlayer.threesMade;
+      return player.threesMade;
     case "steals":
-      return matchedPlayer.steals;
+      return player.steals;
     case "blocks":
-      return matchedPlayer.blocks;
+      return player.blocks;
     case "turnovers":
-      return matchedPlayer.turnovers;
+      return player.turnovers;
     default:
       return undefined;
   }
+}
+
+function findPlayerStatMatch(
+  playerStats: BackendPlayersResponse["players"],
+  playerName: string,
+  team: string,
+  statType: ManualParlayLeg extends infer _T ? string : never
+): { value?: number; reason?: string } {
+  if (playerStats.length === 0) {
+    return { reason: "Player stats unavailable from the selected provider" };
+  }
+
+  const normalizedPlayerName = normalizeText(playerName);
+  const normalizedRequestedTeam = normalizeTeamToken(team);
+  const teamFiltered = playerStats.filter((player) =>
+    team ? teamMatches(player.team, normalizedRequestedTeam) : true
+  );
+  const exactCandidates = teamFiltered.filter((player) => normalizeText(player.name) === normalizedPlayerName);
+
+  if (exactCandidates.length === 1) {
+    return { value: getPlayerStatByType(exactCandidates[0], statType) };
+  }
+
+  if (exactCandidates.length > 1) {
+    return { reason: `Ambiguous player match for ${playerName}` };
+  }
+
+  const allExactCandidates = playerStats.filter((player) => normalizeText(player.name) === normalizedPlayerName);
+
+  if (allExactCandidates.length === 1) {
+    return { value: getPlayerStatByType(allExactCandidates[0], statType) };
+  }
+
+  if (allExactCandidates.length > 1) {
+    return { reason: `Ambiguous player match for ${playerName}` };
+  }
+
+  const requestedLastName = lastName(playerName);
+  const lastNameCandidates = teamFiltered.filter((player) => lastName(player.name) === requestedLastName);
+
+  if (lastNameCandidates.length === 1) {
+    return { value: getPlayerStatByType(lastNameCandidates[0], statType) };
+  }
+
+  if (lastNameCandidates.length > 1) {
+    return { reason: `Ambiguous last-name match for ${playerName}` };
+  }
+
+  return { reason: `${playerName} not found in the selected game` };
 }
 
 function getTeamScores(gameState: GameState, teamName: string): { selected: number; opponent: number } | null {
@@ -236,14 +305,15 @@ export function buildManualLegOverlayChips(params: {
 
     switch (leg.type) {
       case "player_prop": {
-        const current = findPlayerStatValue(playerStats, leg.playerName, leg.statType);
+        const playerMatch = findPlayerStatMatch(playerStats, leg.playerName, leg.team, leg.statType);
+        const current = playerMatch.value;
         const unit = leg.statType === "points" ? "points" : leg.statType;
 
         if (typeof current !== "number") {
           return buildUnavailableChip(
             leg,
             `${leg.playerName} ${leg.direction === "over" ? "O" : "U"}${leg.line} ${unit}`,
-            `Live ${unit} data unavailable`
+            playerMatch.reason ?? `Live ${unit} data unavailable`
           );
         }
 

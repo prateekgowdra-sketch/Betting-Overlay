@@ -70,6 +70,7 @@ export interface BackendPlayersResponse {
   gameId: string;
   source?: string;
   updatedAt: string;
+  unavailableReason?: string;
   players: Array<{
     playerId: string;
     name: string;

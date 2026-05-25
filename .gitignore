@@ -5,3 +5,4 @@ dist
 backend/.env
 backend/secrets/
 *.key
+.env

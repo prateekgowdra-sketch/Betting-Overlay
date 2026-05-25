@@ -22,6 +22,14 @@ export interface SupportedGame {
   source?: "mock" | "real";
 }
 
+export interface BackendStatusResponse {
+  status: string;
+  message: string;
+  sportsDataProvider?: string;
+  kalshiMode?: string;
+  kalshiEnvironment?: string;
+}
+
 const API_BASE_URL = "http://localhost:3001/api";
 const FALLBACK_GAMES: SupportedGame[] = [
   {
@@ -107,6 +115,16 @@ class BackendApi {
     }
 
     return (await response.json()) as BackendGameResponse;
+  }
+
+  async getBackendStatus(): Promise<BackendStatusResponse> {
+    const response = await fetch("http://localhost:3001/health");
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch backend status");
+    }
+
+    return (await response.json()) as BackendStatusResponse;
   }
 
   async getKalshiPositions(gameId: string): Promise<BackendKalshiPositionResponse> {
