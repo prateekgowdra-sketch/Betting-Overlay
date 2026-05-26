@@ -466,10 +466,13 @@ export function OverlayApp() {
           lastUpdated: nextOverlayData.gameState.updatedAt
         });
       } catch (error) {
-        const message =
+        const rawMessage =
           error instanceof Error
             ? error.message
             : "Unable to reach the backend. Make sure localhost:3001 is running.";
+        const message = rawMessage.includes("Failed to fetch game state")
+          ? "The selected game is unavailable. Choose another game in the popup."
+          : rawMessage;
 
         setOverlayStatus({
           state: "error",
@@ -621,7 +624,11 @@ export function OverlayApp() {
           <div className="klo-ticker-left">
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
             {isManualMode ? (
-              <span className="klo-info-chip klo-title-chip">{manualParlay.parlayName}</span>
+              <>
+                <span className="klo-info-chip klo-title-chip">{manualParlay.parlayName}</span>
+                <span className="klo-info-chip">{scoreline}</span>
+                <span className="klo-info-chip">{clock}</span>
+              </>
             ) : (
               <>
                 <span className="klo-info-chip">{scoreline}</span>
@@ -725,6 +732,9 @@ export function OverlayApp() {
             <span className="klo-info-chip klo-status-chip">
               {isManualMode ? `${manualParlay.legs.length} legs · ${trackedManualLegsCount} tracked` : `${activePositions} active`}
             </span>
+            {overlayStatus.state === "error" && overlayStatus.message ? (
+              <span className="klo-info-chip klo-status-chip">{overlayStatus.message}</span>
+            ) : null}
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
               className="klo-min-button"
@@ -744,7 +754,7 @@ export function OverlayApp() {
           <div className="klo-card-header">
             <div>
               <div className="klo-card-brand">Kalshi Live Overlay</div>
-              <div className="klo-card-subtitle">{manualParlay.parlayName}</div>
+              <div className="klo-card-subtitle">{manualParlay.parlayName} · {fullGameTitle}</div>
             </div>
             <div className="klo-card-actions">
               <button
@@ -784,6 +794,9 @@ export function OverlayApp() {
           </div>
 
           <section className="klo-scoreboard-card">
+            {overlayStatus.state === "error" && overlayStatus.message ? (
+              <div className="klo-scoreboard-meta">{overlayStatus.message}</div>
+            ) : null}
             <div className="klo-summary-eyebrow">Parlay Summary</div>
             <div className="klo-scoreboard-row">
               <span>Amount wagered</span>
@@ -969,6 +982,9 @@ export function OverlayApp() {
           </div>
 
           <section className="klo-scoreboard-card">
+            {overlayStatus.state === "error" && overlayStatus.message ? (
+              <div className="klo-scoreboard-meta">{overlayStatus.message}</div>
+            ) : null}
             <div className="klo-scoreboard-row">
               <span>{gameState.awayTeam.shortName}</span>
               <strong>{gameState.awayTeam.score}</strong>

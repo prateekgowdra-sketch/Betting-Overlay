@@ -181,6 +181,7 @@ export function PopupApp() {
   const [gameTitle, setGameTitle] = useState("Loading...");
   const [availableGames, setAvailableGames] = useState<SupportedGame[]>([]);
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
+  const [gameSelectionMessage, setGameSelectionMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState<LegDraft>(DEFAULT_DRAFT);
   const [draftError, setDraftError] = useState("");
@@ -207,8 +208,22 @@ export function PopupApp() {
   }
 
   function formatGameOptionLabel(game: SupportedGame): string {
-    const sourceLabel = game.source === "real" ? "Real" : "Mock";
+    const sourceLabel = formatSourceLabel(game.source);
     return `${game.awayAbbr} @ ${game.homeAbbr} • ${formatGameStatus(game)} • ${sourceLabel}`;
+  }
+
+  function formatSourceLabel(source?: string): string {
+    switch (source) {
+      case "balldontlie":
+        return "BALLDONTLIE";
+      case "the_odds_api":
+        return "The Odds API";
+      case "sportsdataio":
+        return "SportsDataIO";
+      case "mock":
+      default:
+        return "Mock";
+    }
   }
 
   function formatProviderLabel(provider?: string): string {
@@ -237,10 +252,18 @@ export function PopupApp() {
       setBackendStatus(nextBackendStatus);
       const safeGames = games.length > 0 ? games : backendApi.getSupportedGames();
       setAvailableGames(safeGames);
+      setGameSelectionMessage(
+        games.length === 0
+          ? "Live game feed unavailable right now. Using fallback demo games."
+          : ""
+      );
       const selectedGame = safeGames.find((game) => game.id === nextSettings.selectedGameId) ?? safeGames[0];
       setGameTitle(selectedGame?.label ?? "Game feed unavailable");
 
       if (selectedGame && selectedGame.id !== nextSettings.selectedGameId) {
+        setGameSelectionMessage((currentMessage) =>
+          currentMessage || "The previously selected game is unavailable. Switched to an available game."
+        );
         void saveAppSettings({
           ...nextSettings,
           selectedGameId: selectedGame.id
@@ -321,6 +344,7 @@ export function PopupApp() {
             Provider: <strong>{formatProviderLabel(backendStatus?.sportsDataProvider)}</strong>
             {selectedGame ? ` · Selected game: ${formatGameOptionLabel(selectedGame)}` : ""}
           </p>
+          {!selectedGame ? <p>No game selected yet. Pick a live game or fallback demo game below.</p> : null}
         </div>
       </header>
 
@@ -350,7 +374,7 @@ export function PopupApp() {
           <label>
             Selected game
             <select
-              value={settings.selectedGameId}
+              value={selectedGame?.id ?? ""}
               onChange={(event) =>
                 void persistSettings({
                   ...settings,
@@ -358,6 +382,7 @@ export function PopupApp() {
                 })
               }
             >
+              {games.length === 0 ? <option value="">No games available</option> : null}
               {games.map((game) => (
                 <option key={game.id} value={game.id}>
                   {formatGameOptionLabel(game)}
@@ -365,6 +390,8 @@ export function PopupApp() {
               ))}
             </select>
           </label>
+
+          {gameSelectionMessage ? <div className="feed-source-copy">{gameSelectionMessage}</div> : null}
 
           {isMockProvider ? (
             <label className="toggle-row">
@@ -383,8 +410,10 @@ export function PopupApp() {
           ) : (
             <div className="provider-summary-row">
               <span>Feed source</span>
-              <span className={`status-pill ${selectedGame?.source === "real" ? "real" : "mock"}`}>
-                {selectedGame?.source === "real" ? "Real game feed" : "Mock fallback"}
+              <span className={`status-pill ${selectedGame?.source && selectedGame.source !== "mock" ? "real" : "mock"}`}>
+                {selectedGame?.source && selectedGame.source !== "mock"
+                  ? `${formatSourceLabel(selectedGame.source)} live feed`
+                  : "Mock fallback"}
               </span>
             </div>
           )}

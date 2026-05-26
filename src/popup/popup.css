@@ -188,6 +188,13 @@ button {
   padding: 4px 0 0;
 }
 
+.feed-source-copy {
+  color: #bdd2e6;
+  font-size: 12px;
+  line-height: 1.45;
+  padding-top: 4px;
+}
+
 .toggle-row input[type="checkbox"] {
   width: 18px;
   height: 18px;

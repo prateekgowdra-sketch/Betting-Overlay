@@ -108,7 +108,7 @@ function normalizeGameListItem(game) {
     clock: normalizeClock(game),
     homeScore: Number(game.home_team_score ?? 0),
     awayScore: Number(game.visitor_team_score ?? 0),
-    source: "real",
+    source: "balldontlie",
     updatedAt: getUpdatedAt(game)
   };
 }
@@ -119,7 +119,7 @@ function normalizeGameState(gameId, game) {
   return {
     gameId,
     providerGameId: String(game.id),
-    source: "real",
+    source: "balldontlie",
     title: `${game.visitor_team?.abbreviation ?? "AWAY"} at ${game.home_team?.abbreviation ?? "HOME"}`,
     gameStatus: normalizeStatus(game),
     quarter: normalizePeriod(game),

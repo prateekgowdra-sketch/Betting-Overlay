@@ -19,7 +19,7 @@ export interface SupportedGame {
   clock?: string;
   homeScore?: number;
   awayScore?: number;
-  source?: "mock" | "real";
+  source?: string;
 }
 
 export interface BackendStatusResponse {
@@ -84,7 +84,7 @@ class BackendApi {
       clock: string;
       homeScore: number;
       awayScore: number;
-      source: "mock" | "real";
+      source: string;
     }>;
 
     this.supportedGames = games.map((game) => ({
