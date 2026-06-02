@@ -32,6 +32,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .popup-shell.loading {
@@ -95,6 +96,7 @@ button {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
 }
 
@@ -144,6 +146,7 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 10px;
+  min-width: 0;
 }
 
 .field-grid.single-column {
@@ -160,6 +163,7 @@ button {
   gap: 6px;
   color: #bdd2e6;
   font-size: 12px;
+  min-width: 0;
 }
 
 .field-grid input,
@@ -170,6 +174,8 @@ button {
   background: rgba(8, 20, 34, 0.95);
   padding: 10px 12px;
   color: #eef6ff;
+  min-height: 40px;
+  min-width: 0;
 }
 
 .toggle-row {
@@ -193,6 +199,29 @@ button {
   font-size: 12px;
   line-height: 1.45;
   padding-top: 4px;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 92px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.search-row input,
+.search-row select {
+  width: 100%;
+  border: 1px solid rgba(138, 173, 210, 0.22);
+  border-radius: 10px;
+  background: rgba(8, 20, 34, 0.95);
+  padding: 10px 12px;
+  color: #eef6ff;
+  min-height: 40px;
+  min-width: 0;
+}
+
+.compact-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .toggle-row input[type="checkbox"] {
@@ -246,10 +275,12 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .position-card {
   padding: 12px;
+  min-width: 0;
 }
 
 .position-topline,
@@ -258,10 +289,16 @@ button {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .market {
   font-weight: 700;
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .position-meta {
@@ -275,8 +312,11 @@ button {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
   color: #bdd2e6;
   font-size: 12px;
+  margin-top: 8px;
+  min-width: 0;
 }
 
 .mini-progress {
@@ -297,6 +337,7 @@ button {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .panel-actions {
@@ -311,6 +352,14 @@ button {
   border-radius: 10px;
   font-weight: 700;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  min-height: 40px;
+  min-width: 0;
+  text-align: center;
+  white-space: normal;
 }
 
 .primary-button {
@@ -320,9 +369,42 @@ button {
 }
 
 .inline-button {
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.1);
   color: #eef6ff;
+  flex-shrink: 0;
+}
+
+.muted-button {
+  opacity: 0.65;
+}
+
+.small-copy,
+.error-copy,
+.feed-source-copy,
+.provider-summary-row span,
+.position-meta span,
+.position-pricing span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 460px) {
+  body {
+    min-width: 360px;
+  }
+
+  .search-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-span-2 {
+    grid-column: span 1;
+  }
 }
 
 .error-copy {

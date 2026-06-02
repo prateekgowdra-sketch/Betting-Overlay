@@ -1,8 +1,9 @@
-import { ManualParlay, OverlayDataMode } from "./types";
+import { KalshiWatchlistItem, ManualParlay, OverlayDataMode } from "./types";
 
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
 export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
+export const KALSHI_WATCHLIST_KEY = "kalshi-live-overlay-watchlist";
 const PARLAY_API_URL = "http://localhost:3001/api/parlays";
 const OVERLAY_UI_VERSION = 4;
 
@@ -31,8 +32,10 @@ const DEFAULT_OVERLAY_UI_STATE: OverlayUiState = {
 const DEFAULT_APP_SETTINGS: AppSettings = {
   selectedGameId: "knicks-cavs-demo",
   demoMode: true,
-  dataMode: "demo"
+  dataMode: "markets"
 };
+
+const DEFAULT_KALSHI_WATCHLIST: KalshiWatchlistItem[] = [];
 
 const DEFAULT_MANUAL_PARLAY: ManualParlay = {
   id: "manual-parlay-default",
@@ -187,6 +190,32 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await safeStorageSet({ [APP_SETTINGS_KEY]: settings });
+}
+
+export async function getKalshiWatchlist(): Promise<KalshiWatchlistItem[]> {
+  const existing = await safeStorageGet<KalshiWatchlistItem[]>(KALSHI_WATCHLIST_KEY);
+
+  if (Array.isArray(existing)) {
+    return existing
+      .filter((item) => item && typeof item.ticker === "string" && typeof item.title === "string")
+      .map((item) => ({
+        ticker: item.ticker,
+        title: item.title,
+        userSide: item.userSide === "NO" ? "NO" : "YES",
+        entryPriceCents: typeof item.entryPriceCents === "number" ? item.entryPriceCents : 50,
+        notes: typeof item.notes === "string" ? item.notes : "",
+        addedAt: item.addedAt ?? new Date().toISOString()
+      }));
+  }
+
+  await safeStorageSet({ [KALSHI_WATCHLIST_KEY]: DEFAULT_KALSHI_WATCHLIST });
+  return DEFAULT_KALSHI_WATCHLIST;
+}
+
+export async function saveKalshiWatchlist(watchlist: KalshiWatchlistItem[]): Promise<void> {
+  await safeStorageSet({
+    [KALSHI_WATCHLIST_KEY]: watchlist
+  });
 }
 
 export async function getManualParlay(): Promise<ManualParlay> {

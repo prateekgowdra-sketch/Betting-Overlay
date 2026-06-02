@@ -105,9 +105,56 @@ export interface OverlayData {
   positions: KalshiPosition[];
 }
 
+export type KalshiMarketSide = "YES" | "NO";
+
+export interface KalshiWatchlistItem {
+  ticker: string;
+  title: string;
+  userSide: KalshiMarketSide;
+  entryPriceCents: number;
+  notes: string;
+  addedAt: string;
+}
+
+export interface KalshiTrackedPosition {
+  side: KalshiMarketSide;
+  contracts: number;
+  entryPriceCents: number;
+}
+
+export interface KalshiMarketSnapshot {
+  ticker: string;
+  title: string;
+  subtitle?: string;
+  status: string;
+  yesBidCents: number | null;
+  yesAskCents: number | null;
+  noBidCents: number | null;
+  noAskCents: number | null;
+  lastPriceCents: number | null;
+  previousPriceCents: number | null;
+  volume: number | null;
+  openInterest: number | null;
+  liquidityCents: number | null;
+  closeTime?: string | null;
+  updatedAt?: string | null;
+  position?: KalshiTrackedPosition | null;
+}
+
+export interface KalshiOrderbookLevel {
+  priceCents: number;
+  count: string;
+}
+
+export interface KalshiMarketOrderbook {
+  ticker: string;
+  yes: KalshiOrderbookLevel[];
+  no: KalshiOrderbookLevel[];
+ }
+
 export type ManualLegLiveStatus = "hit" | "live" | "behind" | "unavailable";
 
-export type OverlayDataMode = "demo" | "manual";
+export type OverlayDataMode = "markets" | "demo" | "manual";
 export type OddsFormat = "american";
 export interface OddsMovement {
   originalImpliedProbability: number;
