@@ -68,21 +68,44 @@ Today’s MVP still relies on mock player stats and a simulated game timeline as
 The backend already supports a provider-based sports data layer.
 
 - default: `mock`
+- optional Kalshi-first provider: `kalshi`
 - optional live game + player stats provider: `balldontlie`
 - optional live scores provider: `the_odds_api`
 - optional player-stat oriented provider path: `sportsdataio`
 
 At the moment:
 - `mock` powers the full demo experience
+- `kalshi` powers a Kalshi-first mode using market discovery, YES/NO prices, watched markets, and read-only positions without requiring a sports stats API
 - `balldontlie` is wired for real NBA games and real player game stats using a backend-only API key
 - `the_odds_api` is wired for normalized game-level score data
 - `sportsdataio` is wired as the player-stat capable provider path for real NBA box score data
 
 Player props require a player-stat capable provider. In this codebase:
+- `kalshi` can run the overlay in a Kalshi-first mode with market discovery, sports market prices, watched markets, and read-only positions
 - `balldontlie` can supply real NBA game lists, game state, and player game stats through the local backend
 - `the_odds_api` can support real game selection and scores
 - `sportsdataio` is the provider intended to supply real player stats for points, rebounds, assists, threes, steals, blocks, and turnovers
 - if a real provider key is missing or the API fails, the backend falls back safely instead of crashing the extension
+
+To run in Kalshi-first mode without BALLDONTLIE:
+
+```bash
+SPORTS_DATA_PROVIDER=kalshi
+KALSHI_MODE=real
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=your_key_id
+KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
+```
+
+What this currently enables:
+- Kalshi-backed game discovery from sports team markets
+- Kalshi matchup shells for the overlay game selector
+- YES/NO pricing through Kalshi market lookups
+- watched markets and read-only positions without a sports stats API
+- clean player-stat unavailable states instead of breaking the overlay
+- no BALLDONTLIE dependency when `SPORTS_DATA_PROVIDER=kalshi`
+
+BALLDONTLIE is optional in this mode. If you leave `BALLDONTLIE_API_KEY` empty, the app can still run using Kalshi market data plus mock fallback where needed.
 
 To run with BALLDONTLIE:
 
@@ -132,12 +155,24 @@ The backend now includes a read-only Kalshi client layer with:
 - positions lookup
 - market lookup
 - market list support in the client
+- backend-only RSA-PSS request signing for authenticated REST reads
+
+Recommended local env for demo-mode Kalshi auth:
+
+```bash
+KALSHI_MODE=mock
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=
+KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
+KALSHI_ENABLE_WEBSOCKET=false
+```
 
 Important:
 - mock Kalshi mode is still the default
 - no trading is implemented
 - no order placement exists
 - no buy/sell actions are exposed
+- Kalshi secrets belong only in `backend/.env` and `backend/secrets/`
 
 ## Tech Stack
 
@@ -233,6 +268,13 @@ KALSHI_API_KEY_ID=
 KALSHI_PRIVATE_KEY_PATH=
 ```
 
+Valid `SPORTS_DATA_PROVIDER` values are:
+- `mock`
+- `kalshi`
+- `balldontlie`
+- `the_odds_api`
+- `sportsdataio`
+
 When the backend starts, it logs only:
 - the selected sports data provider
 - whether `BALLDONTLIE_API_KEY` exists: `true` or `false`
@@ -258,8 +300,9 @@ Then open a normal webpage such as `https://example.com` and keep the backend ru
 
 - API keys stay backend-only
 - private keys stay backend-only
-- `BALLDONTLIE_API_KEY` belongs only in `backend/.env`
+- `BALLDONTLIE_API_KEY` belongs only in `backend/.env` when you choose BALLDONTLIE
 - the Chrome extension does not receive Kalshi credentials
+- Kalshi-first mode can run without any sports stats API key
 - mock mode remains the default for both sports data and Kalshi data
 - this project is read-only with respect to external accounts
 

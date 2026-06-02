@@ -1,6 +1,9 @@
 const BALLDONTLIE_BASE_URL = "https://api.balldontlie.io/v1";
 const DEFAULT_LOOKBACK_DAYS = 1;
 const DEFAULT_LOOKAHEAD_DAYS = 3;
+const PLAYER_STATS_AUTH_COOLDOWN_MS = 15 * 60 * 1000;
+const PLAYER_STATS_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+const PLAYER_STATS_ERROR_COOLDOWN_MS = 30 * 1000;
 
 function addDays(date, offsetDays) {
   const nextDate = new Date(date);
@@ -222,6 +225,9 @@ export class BalldontlieProvider {
     this.fallbackProvider = fallbackProvider;
     this.loggedMissingKey = false;
     this.loggedFetchFailure = false;
+    this.playerStatsUnavailableUntil = 0;
+    this.playerStatsUnavailableReason = null;
+    this.loggedPlayerStatsWarning = false;
   }
 
   getName() {
@@ -249,6 +255,43 @@ export class BalldontlieProvider {
 
   logGamesResult(count) {
     console.log(`[liveSports] provider=balldontlie gamesReturned=${count}`);
+  }
+
+  getUnavailablePlayerStatsResponse(gameId, reason = "BALLDONTLIE player stats unavailable for the selected game.") {
+    const timestamp = new Date().toISOString();
+
+    return {
+      gameId,
+      source: "balldontlie",
+      updatedAt: timestamp,
+      lastUpdated: timestamp,
+      players: [],
+      unavailableReason: reason
+    };
+  }
+
+  getActivePlayerStatsCooldown() {
+    if (this.playerStatsUnavailableUntil > Date.now() && this.playerStatsUnavailableReason) {
+      return this.playerStatsUnavailableReason;
+    }
+
+    return null;
+  }
+
+  setPlayerStatsCooldown(reason, durationMs) {
+    this.playerStatsUnavailableReason = reason;
+    this.playerStatsUnavailableUntil = Date.now() + durationMs;
+
+    if (!this.loggedPlayerStatsWarning) {
+      console.warn(`[liveSports] ${reason}`);
+      this.loggedPlayerStatsWarning = true;
+    }
+  }
+
+  clearPlayerStatsCooldown() {
+    this.playerStatsUnavailableUntil = 0;
+    this.playerStatsUnavailableReason = null;
+    this.loggedPlayerStatsWarning = false;
   }
 
   async getTodayGames() {
@@ -286,16 +329,19 @@ export class BalldontlieProvider {
       return this.fallbackProvider.getPlayerStats(gameId, demoMode);
     }
 
+    const unavailableReason = this.getActivePlayerStatsCooldown();
+
+    if (unavailableReason) {
+      return this.getUnavailablePlayerStatsResponse(gameId, unavailableReason);
+    }
+
     const stats = await this.fetchStats(providerGameId);
 
     if (!stats) {
-      return {
+      return this.getUnavailablePlayerStatsResponse(
         gameId,
-        source: "balldontlie",
-        updatedAt: new Date().toISOString(),
-        players: [],
-        unavailableReason: "BALLDONTLIE player stats unavailable for the selected game."
-      };
+        this.playerStatsUnavailableReason ?? "BALLDONTLIE player stats unavailable for the selected game."
+      );
     }
 
     return normalizePlayers(gameId, stats);
@@ -405,15 +451,33 @@ export class BalldontlieProvider {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          this.setPlayerStatsCooldown(
+            "BALLDONTLIE player stats are not available for this API key or plan. Returning unavailable state until the cooldown expires.",
+            PLAYER_STATS_AUTH_COOLDOWN_MS
+          );
+          return null;
+        }
+
+        if (response.status === 429) {
+          this.setPlayerStatsCooldown(
+            "BALLDONTLIE player stats rate-limited. Returning unavailable state until the cooldown expires.",
+            PLAYER_STATS_RATE_LIMIT_COOLDOWN_MS
+          );
+          return null;
+        }
+
         throw new Error(`BALLDONTLIE responded with ${response.status}`);
       }
 
       const payload = await response.json();
+      this.clearPlayerStatsCooldown();
       return Array.isArray(payload.data) ? payload.data : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      console.warn(
-        `[liveSports] Failed to fetch BALLDONTLIE player stats for game ${providerGameId}. ${message}`
+      this.setPlayerStatsCooldown(
+        `Failed to fetch BALLDONTLIE player stats for game ${providerGameId}. ${message}`,
+        PLAYER_STATS_ERROR_COOLDOWN_MS
       );
       return null;
     }

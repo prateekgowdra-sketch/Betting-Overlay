@@ -27,7 +27,9 @@ export interface BackendStatusResponse {
   message: string;
   sportsDataProvider?: string;
   kalshiMode?: string;
+  kalshiEnv?: string;
   kalshiEnvironment?: string;
+  usingKalshiAsPrimaryProvider?: boolean;
 }
 
 const API_BASE_URL = "http://localhost:3001/api";

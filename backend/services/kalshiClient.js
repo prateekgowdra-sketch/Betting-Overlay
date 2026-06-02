@@ -1,10 +1,15 @@
 import { existsSync, readFileSync } from "fs";
 import crypto from "crypto";
+import { dirname, isAbsolute, join } from "path";
+import { fileURLToPath } from "url";
 
 const KALSHI_BASE_URLS = {
   demo: "https://external-api.demo.kalshi.co/trade-api/v2",
   production: "https://external-api.kalshi.com/trade-api/v2"
 };
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const BACKEND_ROOT = join(__dirname, "..");
 
 function normalizeKalshiMode(value) {
   return value === "real" ? "real" : "mock";
@@ -39,12 +44,34 @@ class KalshiClient {
     return process.env.KALSHI_PRIVATE_KEY_PATH?.trim() || "";
   }
 
+  getResolvedPrivateKeyPath() {
+    const privateKeyPath = this.getPrivateKeyPath();
+
+    if (!privateKeyPath) {
+      return "";
+    }
+
+    return isAbsolute(privateKeyPath) ? privateKeyPath : join(BACKEND_ROOT, privateKeyPath);
+  }
+
+  getWebsocketEnabled() {
+    return process.env.KALSHI_ENABLE_WEBSOCKET === "true";
+  }
+
+  hasApiKeyId() {
+    return Boolean(this.getApiKeyId());
+  }
+
+  hasPrivateKeyPath() {
+    return Boolean(this.getResolvedPrivateKeyPath());
+  }
+
   hasCredentials() {
-    return Boolean(this.getApiKeyId() && this.getPrivateKeyPem());
+    return Boolean(this.hasApiKeyId() && this.getPrivateKeyPem());
   }
 
   getPrivateKeyPem() {
-    const privateKeyPath = this.getPrivateKeyPath();
+    const privateKeyPath = this.getResolvedPrivateKeyPath();
 
     if (!privateKeyPath || !existsSync(privateKeyPath)) {
       return "";
@@ -93,6 +120,10 @@ class KalshiClient {
     );
   }
 
+  async kalshiGet(path) {
+    return this.request(path, { method: "GET" });
+  }
+
   async request(path, options = {}) {
     if (!this.isConfiguredForRealMode()) {
       this.logCredentialWarningOnce();
@@ -102,8 +133,7 @@ class KalshiClient {
     const method = (options.method || "GET").toUpperCase();
     const timestamp = String(Date.now());
     const url = new URL(`${this.getBaseUrl()}${path}`);
-    const signPath = path.split("?")[0];
-    const signature = this.createSignature(timestamp, method, signPath);
+    const signature = this.createSignature(timestamp, method, path);
 
     const response = await fetch(url, {
       ...options,
@@ -126,15 +156,15 @@ class KalshiClient {
   }
 
   async getBalance() {
-    return this.request("/portfolio/balance");
+    return this.kalshiGet("/portfolio/balance");
   }
 
   async getPositions() {
-    return this.request("/portfolio/positions");
+    return this.kalshiGet("/portfolio/positions");
   }
 
   async getMarket(ticker) {
-    return this.request(`/markets/${encodeURIComponent(ticker)}`);
+    return this.kalshiGet(`/markets/${encodeURIComponent(ticker)}`);
   }
 
   async getMarkets(query = {}) {
@@ -148,9 +178,7 @@ class KalshiClient {
 
     const pathWithQuery = `/markets${url.search ? url.search : ""}`;
 
-    return this.request(pathWithQuery, {
-      method: "GET"
-    });
+    return this.kalshiGet(pathWithQuery);
   }
 }
 

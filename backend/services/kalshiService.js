@@ -130,6 +130,47 @@ function normalizeKalshiMarket(rawMarket) {
   };
 }
 
+function normalizeTeamToken(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function extractTeamsFromMarketTitle(title) {
+  const match = String(title ?? "")
+    .trim()
+    .replace(/\?$/, "")
+    .match(/^will\s+the\s+(.+?)\s+beat\s+the\s+(.+)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  return [match[1].trim(), match[2].trim()];
+}
+
+function gameMatchesMarketTitle(game, title) {
+  const teams = extractTeamsFromMarketTitle(title);
+
+  if (!teams) {
+    return false;
+  }
+
+  const gameTeams = [game.homeTeam?.name, game.awayTeam?.name].map(normalizeTeamToken);
+  const marketTeams = teams.map(normalizeTeamToken);
+
+  return marketTeams.every((team) => gameTeams.includes(team));
+}
+
+function normalizeSide(value) {
+  const normalized = String(value ?? "YES").trim().toUpperCase();
+  return normalized === "NO" ? "NO" : "YES";
+}
+
+function numberOrFallback(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 class KalshiService {
   getMode() {
     return kalshiClient.getMode();
@@ -223,12 +264,85 @@ class KalshiService {
     };
   }
 
-  getPositionsForGame(gameId, game) {
-    if (gameId === "thunder-spurs-demo") {
-      return this.getThunderSpursPositions(gameId, game);
+  async getPositionsForGame(gameId, game) {
+    if (!kalshiClient.isConfiguredForRealMode()) {
+      if (gameId === "thunder-spurs-demo") {
+        return this.getThunderSpursPositions(gameId, game);
+      }
+
+      return this.getKnicksCavsPositions(gameId, game);
     }
 
-    return this.getKnicksCavsPositions(gameId, game);
+    return this.getRealPositionsForGame(gameId, game);
+  }
+
+  async getRealPositionsForGame(gameId, game) {
+    const [positionsResponse, marketsResponse] = await Promise.all([this.getPositions(), this.getMarkets()]);
+    const rawPositions = Array.isArray(positionsResponse.positions) ? positionsResponse.positions : [];
+    const normalizedMarkets = (Array.isArray(marketsResponse.markets) ? marketsResponse.markets : [])
+      .map((market) => normalizeKalshiMarket(market))
+      .filter(Boolean);
+
+    const matchingMarkets = normalizedMarkets.filter((market) => gameMatchesMarketTitle(game, market.title));
+    const matchingTickers = new Set(matchingMarkets.map((market) => market.ticker));
+    const matchingPositions = rawPositions.filter((position) => {
+      const title = position.title ?? position.market_title ?? position.ticker ?? "";
+      return matchingTickers.has(position.ticker) || gameMatchesMarketTitle(game, title);
+    });
+
+    const positions = matchingPositions.length > 0
+      ? matchingPositions.map((position, index) => this.normalizeRealPosition(position, matchingMarkets, index))
+      : matchingMarkets.map((market, index) => this.normalizeWatchedMarketPosition(market, index));
+
+    return {
+      gameId,
+      updatedAt: getNowIso(),
+      positions
+    };
+  }
+
+  normalizeRealPosition(position, matchingMarkets, index) {
+    const marketTitle = position.title ?? position.market_title ?? position.ticker ?? `Kalshi market ${index + 1}`;
+    const matchingMarket = matchingMarkets.find((market) => market.ticker === position.ticker || market.title === marketTitle);
+    const parsedMarket = parseKalshiMarketTitle(marketTitle);
+    const entryPriceCents = numberOrFallback(
+      position.entry_price_cents ?? position.average_price_cents ?? dollarsStringToCents(position.average_price_dollars),
+      50
+    );
+    const currentPriceCents = numberOrFallback(
+      position.current_price_cents ?? matchingMarket?.yesPriceCents ?? matchingMarket?.lastPriceCents,
+      entryPriceCents
+    );
+    const contracts = numberOrFallback(position.position_contracts ?? position.contract_count ?? position.contracts, 0);
+
+    return {
+      id: position.ticker ?? `kalshi-position-${index + 1}`,
+      marketTitle,
+      platform: "Kalshi",
+      side: normalizeSide(position.side ?? position.position_side),
+      contracts,
+      entryPriceCents,
+      currentPriceCents,
+      whatNeedsToHappen: parsedMarket.whatNeedsToHappen,
+      marketLeg: parsedMarket.marketLeg
+    };
+  }
+
+  normalizeWatchedMarketPosition(market, index) {
+    const parsedMarket = parseKalshiMarketTitle(market.title);
+    const currentPriceCents = numberOrFallback(market.yesPriceCents ?? market.lastPriceCents, 50);
+
+    return {
+      id: market.ticker ?? `kalshi-watch-${index + 1}`,
+      marketTitle: market.title,
+      platform: "Kalshi",
+      side: "YES",
+      contracts: 0,
+      entryPriceCents: currentPriceCents,
+      currentPriceCents,
+      whatNeedsToHappen: parsedMarket.whatNeedsToHappen,
+      marketLeg: parsedMarket.marketLeg
+    };
   }
 
   getKnicksCavsPositions(gameId, game) {

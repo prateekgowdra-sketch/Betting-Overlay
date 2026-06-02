@@ -428,11 +428,18 @@ export function OverlayApp() {
       );
 
       try {
-        const [gameStateResponse, kalshiPositionsResponse, playerStatsResponse] = await Promise.all([
+        const [gameStateResponse, kalshiPositionsResponse] = await Promise.all([
           backendApi.getGameState(settings.selectedGameId),
-          backendApi.getKalshiPositions(settings.selectedGameId),
-          backendApi.getPlayerStats(settings.selectedGameId)
+          backendApi.getKalshiPositions(settings.selectedGameId)
         ]);
+        const playerStatsResponse = await backendApi.getPlayerStats(settings.selectedGameId).catch(
+          () => ({
+            gameId: settings.selectedGameId,
+            updatedAt: new Date().toISOString(),
+            players: [],
+            unavailableReason: "Sports stats unavailable"
+          })
+        );
 
         const predictionMarketLegs =
           settings.dataMode === "manual"

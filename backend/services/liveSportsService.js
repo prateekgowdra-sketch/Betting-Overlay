@@ -1,4 +1,6 @@
+import { kalshiService } from "./kalshiService.js";
 import { BalldontlieProvider } from "./providers/balldontlieProvider.js";
+import { KalshiProvider } from "./providers/kalshiProvider.js";
 import { MockSportsProvider } from "./providers/mockSportsProvider.js";
 import { SportsDataIoProvider } from "./providers/sportsDataIoProvider.js";
 import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
@@ -6,12 +8,13 @@ import { TheOddsApiProvider } from "./providers/theOddsApiProvider.js";
 const mockProvider = new MockSportsProvider();
 const PROVIDERS = {
   mock: mockProvider,
+  kalshi: new KalshiProvider({ fallbackProvider: mockProvider, kalshiService }),
   balldontlie: new BalldontlieProvider({ fallbackProvider: mockProvider }),
   the_odds_api: new TheOddsApiProvider({ fallbackProvider: mockProvider }),
   sportsdataio: new SportsDataIoProvider({ fallbackProvider: mockProvider })
 };
 
-function resolveProvider() {
+function resolveProviderName() {
   const requestedProvider = (process.env.SPORTS_DATA_PROVIDER || "mock").toLowerCase();
 
   if (!PROVIDERS[requestedProvider]) {
@@ -20,7 +23,11 @@ function resolveProvider() {
     );
   }
 
-  return PROVIDERS[requestedProvider] ?? PROVIDERS.mock;
+  return PROVIDERS[requestedProvider] ? requestedProvider : "mock";
+}
+
+function resolveProvider() {
+  return PROVIDERS[resolveProviderName()] ?? PROVIDERS.mock;
 }
 
 class LiveSportsService {
@@ -29,7 +36,11 @@ class LiveSportsService {
   }
 
   getProviderName() {
-    return this.getProvider().getName();
+    return resolveProviderName();
+  }
+
+  isUsingKalshiAsPrimaryProvider() {
+    return this.getProviderName() === "kalshi";
   }
 
   getSupportedGames() {

@@ -216,6 +216,8 @@ export function PopupApp() {
     switch (source) {
       case "balldontlie":
         return "BALLDONTLIE";
+      case "kalshi":
+        return "Kalshi";
       case "the_odds_api":
         return "The Odds API";
       case "sportsdataio":
@@ -230,6 +232,8 @@ export function PopupApp() {
     switch (provider) {
       case "balldontlie":
         return "BALLDONTLIE";
+      case "kalshi":
+        return "Kalshi";
       case "the_odds_api":
         return "The Odds API";
       case "sportsdataio":

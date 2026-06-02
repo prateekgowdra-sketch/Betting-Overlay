@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { kalshiClient } from "./services/kalshiClient.js";
 import { kalshiService } from "./services/kalshiService.js";
 import { liveSportsService } from "./services/liveSportsService.js";
 import { manualParlayStorageService } from "./services/manualParlayStorageService.js";
@@ -14,14 +15,14 @@ function loadEnv() {
   dotenv.config({ path: ENV_PATH, quiet: true });
 }
 
-function hasBalldontlieKey() {
-  return Boolean(process.env.BALLDONTLIE_API_KEY?.trim());
-}
 
 function logStartupConfig() {
   console.log("[backend] Startup config");
   console.log(`[backend] sportsDataProvider=${liveSportsService.getProviderName()}`);
-  console.log(`[backend] balldontlieKeyPresent=${hasBalldontlieKey()}`);
+  console.log(`[backend] kalshiMode=${kalshiClient.getMode()}`);
+  console.log(`[backend] kalshiEnv=${kalshiClient.getEnvironment()}`);
+  console.log(`[backend] hasKalshiApiKey=${kalshiClient.hasApiKeyId()}`);
+  console.log(`[backend] hasKalshiPrivateKeyPath=${kalshiClient.hasPrivateKeyPath()}`);
 }
 
 function setCorsHeaders(response) {
@@ -91,7 +92,9 @@ const server = createServer(async (request, response) => {
       status: "running",
       sportsDataProvider: liveSportsService.getProviderName(),
       kalshiMode: kalshiService.getMode(),
-      kalshiEnvironment: kalshiService.getEnvironment()
+      kalshiEnv: kalshiService.getEnvironment(),
+      kalshiEnvironment: kalshiService.getEnvironment(),
+      usingKalshiAsPrimaryProvider: liveSportsService.isUsingKalshiAsPrimaryProvider()
     });
     return;
   }
@@ -102,7 +105,9 @@ const server = createServer(async (request, response) => {
       message: "Backend running",
       sportsDataProvider: liveSportsService.getProviderName(),
       kalshiMode: kalshiService.getMode(),
-      kalshiEnvironment: kalshiService.getEnvironment()
+      kalshiEnv: kalshiService.getEnvironment(),
+      kalshiEnvironment: kalshiService.getEnvironment(),
+      usingKalshiAsPrimaryProvider: liveSportsService.isUsingKalshiAsPrimaryProvider()
     });
     return;
   }
@@ -238,7 +243,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    sendJson(response, 200, kalshiService.getPositionsForGame(kalshiMatch[1], game));
+    sendJson(response, 200, await kalshiService.getPositionsForGame(kalshiMatch[1], game));
     return;
   }
 
