@@ -4,6 +4,7 @@ import {
   BackendKalshiPositionResponse,
   BackendPlayersResponse
 } from "../shared/overlayState";
+import { KalshiMarketOrderbook, KalshiMarketSnapshot } from "../shared/types";
 
 export interface SupportedGame {
   id: string;
@@ -30,6 +31,20 @@ export interface BackendStatusResponse {
   kalshiEnv?: string;
   kalshiEnvironment?: string;
   usingKalshiAsPrimaryProvider?: boolean;
+  kalshiPublicEnv?: string;
+}
+
+export interface KalshiMarketsResponse {
+  mode: "mock" | "real";
+  environment: "demo" | "production";
+  markets: KalshiMarketSnapshot[];
+  cursor: string | null;
+}
+
+export interface KalshiOrderbookResponse {
+  mode: "mock" | "real";
+  environment: "demo" | "production";
+  orderbook: KalshiMarketOrderbook;
 }
 
 const API_BASE_URL = "http://localhost:3001/api";
@@ -157,6 +172,56 @@ class BackendApi {
     }
 
     return (await response.json()) as BackendKalshiMarketResponse;
+  }
+
+  async getKalshiMarkets(params: {
+    limit?: number;
+    cursor?: string;
+    status?: string;
+    tickers?: string[];
+    query?: string;
+  } = {}): Promise<KalshiMarketsResponse> {
+    const url = new URL(`${API_BASE_URL}/kalshi/markets`);
+
+    if (typeof params.limit === "number") {
+      url.searchParams.set("limit", String(params.limit));
+    }
+
+    if (params.cursor) {
+      url.searchParams.set("cursor", params.cursor);
+    }
+
+    if (params.status) {
+      url.searchParams.set("status", params.status);
+    }
+
+    if (params.query) {
+      url.searchParams.set("q", params.query);
+    }
+
+    if (params.tickers && params.tickers.length > 0) {
+      url.searchParams.set("tickers", params.tickers.join(","));
+    }
+
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch Kalshi markets");
+    }
+
+    return (await response.json()) as KalshiMarketsResponse;
+  }
+
+  async getKalshiMarketOrderbook(ticker: string): Promise<KalshiOrderbookResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/kalshi/market/${encodeURIComponent(ticker)}/orderbook`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Kalshi orderbook ${ticker}`);
+    }
+
+    return (await response.json()) as KalshiOrderbookResponse;
   }
 
   private buildUrl(path: string): string {

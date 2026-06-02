@@ -19,6 +19,14 @@ function normalizeKalshiEnv(value) {
   return value === "production" ? "production" : "demo";
 }
 
+function normalizeKalshiPublicEnv(value) {
+  if (value === "demo" || value === "production") {
+    return value;
+  }
+
+  return "production";
+}
+
 class KalshiClient {
   constructor() {
     this.loggedCredentialWarning = false;
@@ -34,6 +42,16 @@ class KalshiClient {
 
   getBaseUrl() {
     return KALSHI_BASE_URLS[this.getEnvironment()];
+  }
+
+  getPublicEnvironment() {
+    return normalizeKalshiPublicEnv(
+      process.env.KALSHI_PUBLIC_ENV?.toLowerCase() || process.env.KALSHI_ENV?.toLowerCase()
+    );
+  }
+
+  getPublicBaseUrl() {
+    return KALSHI_BASE_URLS[this.getPublicEnvironment()];
   }
 
   getApiKeyId() {
@@ -124,6 +142,10 @@ class KalshiClient {
     return this.request(path, { method: "GET" });
   }
 
+  async publicGet(path) {
+    return this.publicRequest(path, { method: "GET" });
+  }
+
   async request(path, options = {}) {
     if (!this.isConfiguredForRealMode()) {
       this.logCredentialWarningOnce();
@@ -133,7 +155,7 @@ class KalshiClient {
     const method = (options.method || "GET").toUpperCase();
     const timestamp = String(Date.now());
     const url = new URL(`${this.getBaseUrl()}${path}`);
-    const signature = this.createSignature(timestamp, method, path);
+    const signature = this.createSignature(timestamp, method, url.pathname);
 
     const response = await fetch(url, {
       ...options,
@@ -150,6 +172,26 @@ class KalshiClient {
 
     if (!response.ok) {
       throw new Error(`Kalshi API responded with ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async publicRequest(path, options = {}) {
+    const method = (options.method || "GET").toUpperCase();
+    const url = new URL(`${this.getPublicBaseUrl()}${path}`);
+    const response = await fetch(url, {
+      ...options,
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...options.headers
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Kalshi public API responded with ${response.status}`);
     }
 
     return response.json();
@@ -179,6 +221,38 @@ class KalshiClient {
     const pathWithQuery = `/markets${url.search ? url.search : ""}`;
 
     return this.kalshiGet(pathWithQuery);
+  }
+
+  async getPublicMarket(ticker) {
+    return this.publicGet(`/markets/${encodeURIComponent(ticker)}`);
+  }
+
+  async getPublicMarkets(query = {}) {
+    const url = new URL(`${this.getPublicBaseUrl()}/markets`);
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    }
+
+    const pathWithQuery = `/markets${url.search ? url.search : ""}`;
+
+    return this.publicGet(pathWithQuery);
+  }
+
+  async getPublicOrderbook(ticker, query = {}) {
+    const url = new URL(`${this.getPublicBaseUrl()}/markets/${encodeURIComponent(ticker)}/orderbook`);
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    }
+
+    const pathWithQuery = `/markets/${encodeURIComponent(ticker)}/orderbook${url.search ? url.search : ""}`;
+
+    return this.publicGet(pathWithQuery);
   }
 }
 

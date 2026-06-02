@@ -21,6 +21,7 @@ function logStartupConfig() {
   console.log(`[backend] sportsDataProvider=${liveSportsService.getProviderName()}`);
   console.log(`[backend] kalshiMode=${kalshiClient.getMode()}`);
   console.log(`[backend] kalshiEnv=${kalshiClient.getEnvironment()}`);
+  console.log(`[backend] kalshiPublicEnv=${kalshiClient.getPublicEnvironment()}`);
   console.log(`[backend] hasKalshiApiKey=${kalshiClient.hasApiKeyId()}`);
   console.log(`[backend] hasKalshiPrivateKeyPath=${kalshiClient.hasPrivateKeyPath()}`);
 }
@@ -68,7 +69,9 @@ const AVAILABLE_ROUTES = [
   "GET /api/live/players/:gameId",
   "GET /api/kalshi/balance",
   "GET /api/kalshi/positions",
+  "GET /api/kalshi/markets",
   "GET /api/kalshi/market/:ticker",
+  "GET /api/kalshi/market/:ticker/orderbook",
   "GET /api/kalshi/positions/:gameId",
   "GET /api/parlays",
   "POST /api/parlays",
@@ -93,6 +96,7 @@ const server = createServer(async (request, response) => {
       sportsDataProvider: liveSportsService.getProviderName(),
       kalshiMode: kalshiService.getMode(),
       kalshiEnv: kalshiService.getEnvironment(),
+      kalshiPublicEnv: kalshiService.getPublicEnvironment(),
       kalshiEnvironment: kalshiService.getEnvironment(),
       usingKalshiAsPrimaryProvider: liveSportsService.isUsingKalshiAsPrimaryProvider()
     });
@@ -106,6 +110,7 @@ const server = createServer(async (request, response) => {
       sportsDataProvider: liveSportsService.getProviderName(),
       kalshiMode: kalshiService.getMode(),
       kalshiEnv: kalshiService.getEnvironment(),
+      kalshiPublicEnv: kalshiService.getPublicEnvironment(),
       kalshiEnvironment: kalshiService.getEnvironment(),
       usingKalshiAsPrimaryProvider: liveSportsService.isUsingKalshiAsPrimaryProvider()
     });
@@ -117,6 +122,7 @@ const server = createServer(async (request, response) => {
   const livePlayersMatch = url.pathname.match(/^\/api\/live\/players\/([^/]+)$/);
   const kalshiMatch = url.pathname.match(/^\/api\/kalshi\/positions\/([^/]+)$/);
   const kalshiMarketMatch = url.pathname.match(/^\/api\/kalshi\/market\/([^/]+)$/);
+  const kalshiOrderbookMatch = url.pathname.match(/^\/api\/kalshi\/market\/([^/]+)\/orderbook$/);
   const parlayMatch = url.pathname.match(/^\/api\/parlays\/([^/]+)$/);
 
   if (request.method === "GET" && url.pathname === "/api/parlays") {
@@ -192,9 +198,43 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/kalshi/markets") {
+    try {
+      const limitParam = Number(url.searchParams.get("limit") || 20);
+      const limit = Number.isFinite(limitParam)
+        ? Math.max(1, Math.min(100, Math.round(limitParam)))
+        : 20;
+      const query = {
+        limit,
+        cursor: url.searchParams.get("cursor") || undefined,
+        status: url.searchParams.get("status") || "open",
+        tickers: url.searchParams.get("tickers") || undefined
+      };
+      const searchQuery = (url.searchParams.get("q") || "").trim().toLowerCase();
+      const responsePayload = await kalshiService.getPublicMarkets(query);
+      const markets = searchQuery
+        ? responsePayload.markets.filter((market) => {
+            const haystack = `${market.title} ${market.ticker} ${market.subtitle ?? ""}`.toLowerCase();
+            return haystack.includes(searchQuery);
+          })
+        : responsePayload.markets;
+
+      sendJson(response, 200, {
+        ...responsePayload,
+        markets
+      });
+    } catch (error) {
+      sendJson(response, 502, {
+        error: "Failed to fetch Kalshi markets",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && kalshiMarketMatch) {
     try {
-      const market = await kalshiService.getMarket(kalshiMarketMatch[1]);
+      const market = await kalshiService.getPublicMarket(kalshiMarketMatch[1]);
 
       if (!market.market) {
         sendJson(response, 404, { error: "Unknown ticker" });
@@ -205,6 +245,27 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       sendJson(response, 502, {
         error: "Failed to fetch Kalshi market",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && kalshiOrderbookMatch) {
+    try {
+      const depthParam = Number(url.searchParams.get("depth") || 10);
+      const depth = Number.isFinite(depthParam)
+        ? Math.max(0, Math.min(100, Math.round(depthParam)))
+        : 10;
+
+      sendJson(
+        response,
+        200,
+        await kalshiService.getPublicOrderbook(kalshiOrderbookMatch[1], { depth })
+      );
+    } catch (error) {
+      sendJson(response, 502, {
+        error: "Failed to fetch Kalshi orderbook",
         details: error instanceof Error ? error.message : "Unknown error"
       });
     }

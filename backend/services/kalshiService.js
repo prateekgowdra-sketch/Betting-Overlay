@@ -86,6 +86,15 @@ function dollarsStringToCents(value) {
   return Math.max(0, Math.min(100, Math.round(numeric * 100)));
 }
 
+function fixedPointStringToNumber(value) {
+  if (typeof value !== "string" || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function normalizeKalshiMarket(rawMarket) {
   if (!rawMarket) {
     return null;
@@ -127,6 +136,60 @@ function normalizeKalshiMarket(rawMarket) {
     noPriceCents,
     lastPriceCents: dollarsStringToCents(rawMarket.last_price_dollars) ?? yesPriceCents,
     updatedAt: rawMarket.updated_time ?? null
+  };
+}
+
+function normalizeTrackedMarket(rawMarket, position = null) {
+  const normalized = normalizeKalshiMarket(rawMarket);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const title =
+    rawMarket.title ??
+    rawMarket.market_title ??
+    rawMarket.subtitle ??
+    rawMarket.yes_sub_title ??
+    normalized.title;
+
+  return {
+    ticker: normalized.ticker,
+    title,
+    subtitle: rawMarket.subtitle ?? rawMarket.yes_sub_title ?? null,
+    status: rawMarket.status ?? normalized.status ?? "unknown",
+    yesBidCents:
+      normalized.yesPriceCents ?? dollarsStringToCents(rawMarket.yes_bid_dollars) ?? null,
+    yesAskCents: dollarsStringToCents(rawMarket.yes_ask_dollars) ?? rawMarket.yes_ask_cents ?? null,
+    noBidCents: dollarsStringToCents(rawMarket.no_bid_dollars) ?? rawMarket.no_bid_cents ?? null,
+    noAskCents: normalized.noPriceCents ?? dollarsStringToCents(rawMarket.no_ask_dollars) ?? null,
+    lastPriceCents: normalized.lastPriceCents,
+    previousPriceCents:
+      dollarsStringToCents(rawMarket.previous_price_dollars) ?? rawMarket.previous_price_cents ?? null,
+    volume: fixedPointStringToNumber(rawMarket.volume_fp) ?? null,
+    openInterest: fixedPointStringToNumber(rawMarket.open_interest_fp) ?? null,
+    liquidityCents:
+      dollarsStringToCents(rawMarket.liquidity_dollars) ?? rawMarket.liquidity_cents ?? null,
+    closeTime: rawMarket.close_time ?? null,
+    updatedAt: normalized.updatedAt,
+    position
+  };
+}
+
+function normalizeOrderbookLevel(level) {
+  if (!Array.isArray(level) || level.length < 2) {
+    return null;
+  }
+
+  const priceCents = dollarsStringToCents(level[0]);
+
+  if (typeof priceCents !== "number") {
+    return null;
+  }
+
+  return {
+    priceCents,
+    count: String(level[1] ?? "0")
   };
 }
 
@@ -178,6 +241,10 @@ class KalshiService {
 
   getEnvironment() {
     return kalshiClient.getEnvironment();
+  }
+
+  getPublicEnvironment() {
+    return kalshiClient.getPublicEnvironment();
   }
 
   async getBalance() {
@@ -262,6 +329,88 @@ class KalshiService {
       cursor: response.cursor ?? null,
       raw: response
     };
+  }
+
+  async getPublicMarkets(query = {}) {
+    const response = await kalshiClient.getPublicMarkets(query);
+    const positionsByTicker = await this.getPositionsByTickerSafe();
+
+    return {
+      mode: "real",
+      environment: this.getPublicEnvironment(),
+      markets: (response.markets ?? [])
+        .map((market) => normalizeTrackedMarket(market, positionsByTicker.get(market.ticker) ?? null))
+        .filter(Boolean),
+      cursor: response.cursor ?? null,
+      raw: response
+    };
+  }
+
+  async getPublicMarket(ticker) {
+    const response = await kalshiClient.getPublicMarket(ticker);
+    const positionsByTicker = await this.getPositionsByTickerSafe();
+
+    return {
+      mode: "real",
+      environment: this.getPublicEnvironment(),
+      market: normalizeTrackedMarket(
+        response.market ?? null,
+        positionsByTicker.get(ticker) ?? null
+      ),
+      raw: response
+    };
+  }
+
+  async getPublicOrderbook(ticker, query = {}) {
+    const response = await kalshiClient.getPublicOrderbook(ticker, query);
+    const orderbook = response.orderbook_fp ?? {};
+
+    return {
+      mode: "real",
+      environment: this.getPublicEnvironment(),
+      orderbook: {
+        ticker,
+        yes: Array.isArray(orderbook.yes_dollars)
+          ? orderbook.yes_dollars.map(normalizeOrderbookLevel).filter(Boolean)
+          : [],
+        no: Array.isArray(orderbook.no_dollars)
+          ? orderbook.no_dollars.map(normalizeOrderbookLevel).filter(Boolean)
+          : []
+      },
+      raw: response
+    };
+  }
+
+  async getPositionsByTickerSafe() {
+    if (!kalshiClient.isConfiguredForRealMode()) {
+      return new Map();
+    }
+
+    try {
+      const response = await kalshiClient.getPositions();
+      const positions = Array.isArray(response.market_positions) ? response.market_positions : [];
+
+      return new Map(
+        positions.map((position) => [
+          position.ticker,
+          {
+            side: normalizeSide(position.side ?? position.position_side),
+            contracts: numberOrFallback(
+              position.position_contracts ?? position.contract_count ?? position.contracts,
+              0
+            ),
+            entryPriceCents: numberOrFallback(
+              position.entry_price_cents ??
+                position.average_price_cents ??
+                dollarsStringToCents(position.average_price_dollars),
+              50
+            )
+          }
+        ])
+      );
+    } catch {
+      return new Map();
+    }
   }
 
   async getPositionsForGame(gameId, game) {

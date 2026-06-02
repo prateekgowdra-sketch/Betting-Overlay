@@ -1,43 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { backendApi } from "../services/backendApi";
-import { buildInitialOverlayData, mapBackendResponsesToOverlayData } from "../shared/overlayState";
+import {
+  BackendStatusResponse,
+  backendApi
+} from "../services/backendApi";
 import {
   APP_SETTINGS_KEY,
   AppSettings,
   getAppSettings,
-  getManualParlay,
+  getKalshiWatchlist,
   getOverlayUiState,
-  MANUAL_PARLAY_KEY,
+  KALSHI_WATCHLIST_KEY,
   OVERLAY_UI_KEY,
   OverlayUiState,
   saveOverlayUiState
 } from "../shared/storage";
 import {
-  GameState,
-  KalshiPosition,
-  ManualLegOverlayChip,
-  ManualParlay,
-  ManualParlayLeg,
-  OverlayData,
-  OverlayStatus,
-  PlayerStat,
-  PositionStatus
+  KalshiMarketSide,
+  KalshiMarketSnapshot,
+  KalshiWatchlistItem,
+  OverlayStatus
 } from "../shared/types";
-import {
-  americanOddsToImpliedProbability,
-  formatAmericanOdds,
-  formatCurrency,
-  getOddsMovement
-} from "../shared/odds";
-import { BackendPlayersResponse } from "../shared/overlayState";
-import { BackendKalshiMarketResponse } from "../shared/overlayState";
-import { buildManualLegOverlayChips } from "../shared/manualLegMatcher";
 
 function isExtensionContextInvalidated(error: unknown): boolean {
   return error instanceof Error && error.message.includes("Extension context invalidated");
 }
 
-function formatUpdatedTime(timestamp?: string): string {
+function formatUpdatedTime(timestamp?: string | null): string {
   if (!timestamp) {
     return "--:--";
   }
@@ -54,312 +42,141 @@ function formatUpdatedTime(timestamp?: string): string {
   });
 }
 
-function getPlayerShortName(playerName: string): string {
-  if (playerName === "Karl-Anthony Towns") {
-    return "KAT";
+function formatPrice(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value}c` : "--";
+}
+
+function formatVolume(value: number | null | undefined): string {
+  if (typeof value !== "number") {
+    return "--";
   }
 
-  return playerName.split(" ").slice(-1)[0];
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
-function getStatAbbrev(unitOrType: string): string {
-  switch (unitOrType) {
-    case "points":
-      return "pts";
-    case "rebounds":
-      return "reb";
-    case "assists":
-      return "ast";
-    case "threes_made":
-      return "3PM";
-    case "steals":
-      return "stl";
-    case "blocks":
-      return "blk";
-    case "turnovers":
-      return "to";
-    default:
-      return unitOrType;
-  }
+function truncateTitle(title: string): string {
+  return title.length > 40 ? `${title.slice(0, 37)}...` : title;
 }
 
-function getChipStatusColor(status: PositionStatus): string {
-  switch (status) {
-    case "won":
-    case "on-track":
-      return "#61ebae";
-    case "lost":
-    case "danger":
-      return "#f15b5b";
-    default:
-      return "#f7c948";
-  }
-}
-
-function getChipTone(status: PositionStatus): string {
-  switch (status) {
-    case "won":
-    case "on-track":
-      return "is-good";
-    case "lost":
-    case "danger":
-      return "is-bad";
-    default:
-      return "is-live";
-  }
-}
-
-function getStatusBadgeLabel(status: PositionStatus): string {
-  switch (status) {
-    case "won":
-      return "Cashed";
-    case "on-track":
-      return "Alive";
-    case "lost":
-      return "Dead";
-    case "danger":
-      return "Sweating";
-    default:
-      return "Alive";
-  }
-}
-
-function getManualChipTone(status: ManualLegOverlayChip["status"]): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
-  switch (status) {
-    case "hit":
-      return "is-good";
-    case "behind":
-      return "is-bad";
-    case "unavailable":
-      return "is-unavailable";
-    default:
-      return "is-live";
-  }
-}
-
-function getManualChipColor(status: ManualLegOverlayChip["status"]): string {
-  switch (status) {
-    case "hit":
-      return "#61ebae";
-    case "behind":
-      return "#f15b5b";
-    case "unavailable":
-      return "#95a7bb";
-    default:
-      return "#f7c948";
-  }
-}
-
-function getManualChipBadgeLabel(status: ManualLegOverlayChip["status"]): string {
-  switch (status) {
-    case "hit":
-      return "Hit";
-    case "behind":
-      return "Watch";
-    case "unavailable":
-      return "Unavailable";
-    default:
-      return "Live";
-  }
-}
-
-function formatPlayerChipLabel(playerStat: PlayerStat): string {
-  const shortName = getPlayerShortName(playerStat.playerName);
-  const statAbbrev = getStatAbbrev(playerStat.unit);
-
-  if (playerStat.direction === "over") {
-    const remaining = Math.max(0, playerStat.target - playerStat.current);
-    return `${shortName} ${playerStat.current}/${playerStat.target} ${statAbbrev} · ${remaining === 0 ? "cashed" : `needs ${remaining}`}`;
-  }
-
-  const allowance = Math.max(0, playerStat.target - playerStat.current);
-  return `${shortName} U${playerStat.target} ${statAbbrev} · ${playerStat.current}/${playerStat.target} · ${playerStat.current > playerStat.target ? "dead" : `allow ${allowance}`}`;
-}
-
-function formatMoneylineChipLabel(position: KalshiPosition, gameState: GameState): string {
-  const currentProbability = position.currentPriceCents;
-  const margin = gameState.homeTeam.score - gameState.awayTeam.score;
-  const gameContext = margin > 0 ? `up ${margin}` : margin < 0 ? `down ${Math.abs(margin)}` : "tied";
-  return `Knicks ${position.side} ${currentProbability}% · ${gameContext}`;
-}
-
-function formatMoneylineCardLabel(position: KalshiPosition, gameState: GameState): string {
-  const move = position.currentPriceCents - position.entryPriceCents;
-  const moveText = move >= 0 ? `+${move}` : `${move}`;
-  const margin = gameState.homeTeam.score - gameState.awayTeam.score;
-  const context = margin > 0 ? `Knicks up ${margin}` : margin < 0 ? `Knicks down ${Math.abs(margin)}` : "Tied";
-  return `Knicks ${position.side} ${position.currentPriceCents}% · entry ${position.entryPriceCents}% · ${moveText} · ${context}`;
-}
-
-function getChipProgress(item: KalshiPosition | PlayerStat): number {
-  if ("marketTitle" in item) {
-    return Math.max(0, Math.min(100, item.currentPriceCents));
-  }
-
-  return Math.max(0, Math.min(100, Math.round((item.current / item.target) * 100)));
-}
-
-function renderPositionLabel(position: KalshiPosition, gameState: GameState): string {
-  if (position.id === "knicks-moneyline") {
-    return formatMoneylineChipLabel(position, gameState);
-  }
-
-  if (position.leg) {
-    return formatPlayerChipLabel({
-      id: position.leg.id,
-      playerName: position.leg.playerName,
-      team: "NYK",
-      statType: position.leg.statType,
-      direction: position.leg.direction,
-      current: position.leg.current,
-      target: position.leg.target,
-      unit: position.leg.unit,
-      progress: position.leg.progress,
-      status: position.leg.status,
-      whatIsNeeded: position.leg.whatNeedsToHappen
-    });
-  }
-
-  return position.marketTitle;
-}
-
-function getManualLegStatus(leg: ManualParlayLeg): PositionStatus {
-  if (leg.type === "prediction_market") {
-    if (typeof leg.currentPrice === "number" && typeof leg.originalPrice === "number") {
-      if (leg.currentPrice >= 75) {
-        return "on-track";
-      }
-
-      if (leg.currentPrice <= 35) {
-        return "danger";
-      }
-
-      return leg.currentPrice >= leg.originalPrice ? "sweating" : "danger";
-    }
-  }
-
-  return "sweating";
-}
-
-function getManualLegProgress(leg: ManualParlayLeg): number {
-  if (leg.type === "prediction_market" && typeof leg.currentPrice === "number") {
-    return Math.max(0, Math.min(100, leg.currentPrice));
-  }
-
-  return 50;
-}
-
-function formatManualLegChipLabel(leg: ManualParlayLeg): string {
-  const oddsText =
-    typeof leg.originalOdds === "number" && typeof leg.currentOdds === "number"
-      ? ` | Odds ${formatAmericanOdds(leg.originalOdds)} -> ${formatAmericanOdds(leg.currentOdds)}`
-      : "";
-
-  switch (leg.type) {
-    case "player_prop":
-      return `${getPlayerShortName(leg.playerName)} ${leg.direction === "over" ? "O" : "U"}${leg.line} ${getStatAbbrev(leg.statType)}${oddsText}`;
-    case "team_moneyline":
-      return `${leg.team} ML${leg.opponent ? ` vs ${leg.opponent}` : ""}${oddsText}`;
-    case "spread":
-      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}${oddsText}`;
-    case "game_total":
-      return `${leg.matchup} ${leg.direction === "over" ? "O" : "U"}${leg.line}${oddsText}`;
-    case "prediction_market":
-      return `${leg.userSide} ${leg.marketTitle}${oddsText}`;
-  }
-}
-
-function formatManualLegDetail(leg: ManualParlayLeg): string {
-  switch (leg.type) {
-    case "player_prop":
-      return `${leg.playerName} ${leg.direction === "over" ? "over" : "under"} ${leg.line} ${getStatAbbrev(leg.statType)}`;
-    case "team_moneyline":
-      return `${leg.team} moneyline${leg.opponent ? ` vs ${leg.opponent}` : ""}`;
-    case "spread":
-      return `${leg.team} ${leg.side === "plus" ? "+" : "-"}${leg.line}`;
-    case "game_total":
-      return `${leg.matchup} ${leg.direction} ${leg.line}`;
-    case "prediction_market":
-      return `${leg.userSide} · ${leg.marketTitle}`;
-  }
-}
-
-function formatManualLegNeed(leg: ManualParlayLeg): string {
-  switch (leg.type) {
-    case "player_prop":
-      return `Needs ${leg.direction} ${leg.line} ${getStatAbbrev(leg.statType)}`;
-    case "team_moneyline":
-      return `Needs ${leg.team} to win`;
-    case "spread":
-      return `Needs ${leg.team} ${leg.side === "plus" ? "to stay within" : "to cover"} ${leg.line}`;
-    case "game_total":
-      return `Needs the game total to go ${leg.direction} ${leg.line}`;
-    case "prediction_market":
-      return leg.whatNeedsToHappen;
-  }
-}
-
-function formatManualPredictionPrice(value?: number): string {
-  return typeof value === "number" ? `${value}%` : "--";
-}
-
-function directionArrow(direction: "up" | "down" | "same"): string {
-  switch (direction) {
-    case "up":
-      return "↑";
-    case "down":
-      return "↓";
-    default:
-      return "→";
-  }
-}
-
-function formatParlayOddsTicker(manualParlay: ManualParlay): string {
-  const movement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
-  return `Parlay: ${formatCurrency(manualParlay.amountWagered)} -> ${formatCurrency(manualParlay.estimatedPayout)} | Odds ${formatAmericanOdds(manualParlay.originalOdds)} -> ${formatAmericanOdds(manualParlay.currentOdds)}`;
-}
-
-function formatParlayOddsTickerDetail(manualParlay: ManualParlay): string {
-  const movement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
-  return `Chance ${directionArrow(movement.probabilityDirection)} | Payout ${movement.payoutDirection}`;
-}
-
-function formatManualLegOddsTicker(leg: ManualParlayLeg): string | null {
-  if (typeof leg.originalOdds !== "number" || typeof leg.currentOdds !== "number") {
+function getCurrentSidePrice(
+  side: KalshiMarketSide,
+  market?: KalshiMarketSnapshot
+): number | null {
+  if (!market) {
     return null;
   }
 
-  const movement = getOddsMovement(leg.originalOdds, leg.currentOdds);
-  return `Odds ${formatAmericanOdds(leg.originalOdds)} -> ${formatAmericanOdds(leg.currentOdds)} | Chance ${directionArrow(movement.probabilityDirection)}`;
+  if (side === "YES") {
+    return market.yesAskCents ?? market.yesBidCents ?? market.lastPriceCents;
+  }
+
+  if (typeof market.noAskCents === "number") {
+    return market.noAskCents;
+  }
+
+  if (typeof market.noBidCents === "number") {
+    return market.noBidCents;
+  }
+
+  if (typeof market.lastPriceCents === "number") {
+    return Math.max(0, Math.min(100, 100 - market.lastPriceCents));
+  }
+
+  return null;
 }
 
-function ProgressBar({ progress, color }: { progress: number; color: string }) {
-  return (
-    <div className="klo-progress-track">
-      <div className="klo-progress-fill" style={{ width: `${progress}%`, backgroundColor: color }} />
-    </div>
-  );
+function getMovementCents(
+  item: KalshiWatchlistItem,
+  market?: KalshiMarketSnapshot
+): number | null {
+  const current = getCurrentSidePrice(item.userSide, market);
+
+  if (typeof current !== "number") {
+    return null;
+  }
+
+  return current - item.entryPriceCents;
+}
+
+function getMovementTone(
+  movement: number | null
+): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
+  if (typeof movement !== "number") {
+    return "is-unavailable";
+  }
+
+  if (movement > 0) {
+    return "is-good";
+  }
+
+  if (movement < 0) {
+    return "is-bad";
+  }
+
+  return "is-live";
+}
+
+function formatMovement(movement: number | null): string {
+  if (typeof movement !== "number") {
+    return "--";
+  }
+
+  if (movement === 0) {
+    return "0c";
+  }
+
+  return `${movement > 0 ? "+" : ""}${movement}c`;
+}
+
+function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): number {
+  const current = getCurrentSidePrice(item.userSide, market);
+  return typeof current === "number" ? Math.max(0, Math.min(100, current)) : 0;
+}
+
+function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): string {
+  return `${truncateTitle(item.title)} | YES ${formatPrice(market?.yesAskCents ?? market?.yesBidCents)} / NO ${formatPrice(market?.noAskCents ?? market?.noBidCents)} | You ${item.userSide} | ${formatMovement(getMovementCents(item, market))}`;
+}
+
+function statusTone(status?: string): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
+  switch (status) {
+    case "active":
+    case "open":
+      return "is-good";
+    case "inactive":
+    case "paused":
+      return "is-live";
+    case "closed":
+    case "settled":
+      return "is-bad";
+    default:
+      return "is-unavailable";
+  }
 }
 
 export function OverlayApp() {
-  const [overlayData, setOverlayData] = useState<OverlayData>(() => buildInitialOverlayData());
-  const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({
-    state: "loading",
-    message: "Connecting to backend..."
-  });
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [manualParlay, setManualParlay] = useState<ManualParlay | null>(null);
-  const [livePlayers, setLivePlayers] = useState<BackendPlayersResponse["players"]>([]);
-  const [manualKalshiMarkets, setManualKalshiMarkets] = useState<Record<string, BackendKalshiMarketResponse["market"] | undefined>>({});
+  const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
+  const [marketsByTicker, setMarketsByTicker] = useState<Record<string, KalshiMarketSnapshot>>({});
+  const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
+  const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({
+    state: "loading",
+    message: "Connecting to Kalshi market tracker..."
+  });
   const syncInFlightRef = useRef(false);
 
   useEffect(() => {
-    void Promise.all([getOverlayUiState(), getAppSettings(), getManualParlay()])
-      .then(([nextUiState, nextSettings, nextManualParlay]) => {
+    void Promise.all([
+      getOverlayUiState(),
+      getAppSettings(),
+      getKalshiWatchlist(),
+      backendApi.getBackendStatus().catch(() => null)
+    ])
+      .then(([nextUiState, nextSettings, nextWatchlist, nextBackendStatus]) => {
         setUiState(nextUiState);
         setSettings(nextSettings);
-        setManualParlay(nextManualParlay);
+        setWatchlist(nextWatchlist);
+        setBackendStatus(nextBackendStatus);
       })
       .catch((error) => {
         if (isExtensionContextInvalidated(error)) {
@@ -385,8 +202,8 @@ export function OverlayApp() {
         setSettings(changes[APP_SETTINGS_KEY].newValue as AppSettings);
       }
 
-      if (changes[MANUAL_PARLAY_KEY]?.newValue) {
-        setManualParlay(changes[MANUAL_PARLAY_KEY].newValue as ManualParlay);
+      if (changes[KALSHI_WATCHLIST_KEY]?.newValue) {
+        setWatchlist(changes[KALSHI_WATCHLIST_KEY].newValue as KalshiWatchlistItem[]);
       }
     };
 
@@ -414,184 +231,111 @@ export function OverlayApp() {
       return;
     }
 
-    backendApi.setDemoMode(settings.demoMode);
-
-    const syncOverlayData = async () => {
+    const syncWatchedMarkets = async () => {
       if (syncInFlightRef.current) {
         return;
       }
 
-      syncInFlightRef.current = true;
+      if (settings.dataMode !== "markets") {
+        setOverlayStatus({
+          state: "ready",
+          message: "Switch the popup back to Kalshi market tracker mode.",
+          lastUpdated: new Date().toISOString()
+        });
+        return;
+      }
 
+      if (watchlist.length === 0) {
+        setMarketsByTicker({});
+        setOverlayStatus({
+          state: "ready",
+          message: "Add a market to your watchlist in the popup.",
+          lastUpdated: new Date().toISOString()
+        });
+        return;
+      }
+
+      syncInFlightRef.current = true;
       setOverlayStatus((current) =>
-        current.state === "ready" ? current : { state: "loading", message: "Loading overlay data..." }
+        current.state === "ready"
+          ? current
+          : { state: "loading", message: "Refreshing watched Kalshi markets..." }
       );
 
       try {
-        const [gameStateResponse, kalshiPositionsResponse] = await Promise.all([
-          backendApi.getGameState(settings.selectedGameId),
-          backendApi.getKalshiPositions(settings.selectedGameId)
+        const [marketResponse, nextBackendStatus] = await Promise.all([
+          backendApi.getKalshiMarkets({
+            tickers: watchlist.map((item) => item.ticker)
+          }),
+          backendApi.getBackendStatus().catch(() => null)
         ]);
-        const playerStatsResponse = await backendApi.getPlayerStats(settings.selectedGameId).catch(
-          () => ({
-            gameId: settings.selectedGameId,
-            updatedAt: new Date().toISOString(),
-            players: [],
-            unavailableReason: "Sports stats unavailable"
-          })
+        const nextMarketsByTicker = Object.fromEntries(
+          marketResponse.markets.map((market) => [market.ticker, market])
         );
+        const updatedTimes = marketResponse.markets
+          .map((market) => market.updatedAt)
+          .filter((value): value is string => Boolean(value));
 
-        const predictionMarketLegs =
-          settings.dataMode === "manual"
-            ? (manualParlay?.legs.filter(
-                (leg): leg is Extract<ManualParlayLeg, { type: "prediction_market" }> =>
-                  leg.type === "prediction_market" && Boolean(leg.marketTicker)
-              ) ?? [])
-            : [];
-
-        const marketEntries = await Promise.all(
-          predictionMarketLegs.map(async (leg) => {
-            try {
-              const response = await backendApi.getKalshiMarket(leg.marketTicker!);
-              return [leg.marketTicker!, response.market ?? undefined] as const;
-            } catch {
-              return [leg.marketTicker!, undefined] as const;
-            }
-          })
-        );
-
-        const nextOverlayData = mapBackendResponsesToOverlayData(
-          gameStateResponse,
-          kalshiPositionsResponse
-        );
-
-        setOverlayData(nextOverlayData);
-        setLivePlayers(playerStatsResponse.players);
-        setManualKalshiMarkets(Object.fromEntries(marketEntries));
+        setMarketsByTicker(nextMarketsByTicker);
+        setBackendStatus(nextBackendStatus);
         setOverlayStatus({
           state: "ready",
-          lastUpdated: nextOverlayData.gameState.updatedAt
+          lastUpdated:
+            updatedTimes.sort().at(-1) ?? new Date().toISOString()
         });
       } catch (error) {
-        const rawMessage =
+        const message =
           error instanceof Error
             ? error.message
             : "Unable to reach the backend. Make sure localhost:3001 is running.";
-        const message = rawMessage.includes("Failed to fetch game state")
-          ? "The selected game is unavailable. Choose another game in the popup."
-          : rawMessage;
 
         setOverlayStatus({
           state: "error",
           message,
-          lastUpdated: overlayData.gameState.updatedAt
+          lastUpdated: new Date().toISOString()
         });
       } finally {
         syncInFlightRef.current = false;
       }
     };
 
-    void syncOverlayData();
+    void syncWatchedMarkets();
     const interval = window.setInterval(() => {
-      void syncOverlayData();
+      void syncWatchedMarkets();
     }, 15000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [settings, manualParlay, overlayData.gameState.updatedAt]);
-
-  const gameState = overlayData.gameState;
-  const positionChips = useMemo(() => overlayData.positions.slice(0, 2), [overlayData.positions]);
-  const playerChips = useMemo(() => overlayData.gameState.playerStats.slice(0, 3), [overlayData.gameState.playerStats]);
-  const activePositions = useMemo(
-    () => overlayData.positions.filter((position) => position.status !== "lost").length,
-    [overlayData.positions]
-  );
-  const fallbackPlayers = useMemo<BackendPlayersResponse["players"]>(
-    () =>
-      overlayData.gameState.playerStats.map((playerStat) => ({
-        playerId: playerStat.id,
-        name: playerStat.playerName,
-        team: playerStat.team,
-        points: playerStat.statType === "points" ? playerStat.current : undefined,
-        rebounds: playerStat.statType === "rebounds" ? playerStat.current : undefined,
-        assists: playerStat.statType === "assists" ? playerStat.current : undefined,
-        threesMade: playerStat.statType === "threes_made" ? playerStat.current : undefined,
-        steals: playerStat.statType === "steals" ? playerStat.current : undefined,
-        blocks: playerStat.statType === "blocks" ? playerStat.current : undefined,
-        turnovers: playerStat.statType === "turnovers" ? playerStat.current : undefined
-      })),
-    [overlayData.gameState.playerStats]
-  );
-  const manualOverlayChips = useMemo<ManualLegOverlayChip[]>(
-    () => {
-      if (!manualParlay) {
-        return [];
-      }
-
-      return buildManualLegOverlayChips({
-        manualLegs: manualParlay.legs,
-        gameState: overlayData.gameState,
-        playerStats: livePlayers.length > 0 ? livePlayers : fallbackPlayers,
-        kalshiPositions: overlayData.positions,
-        kalshiMarketsByTicker: manualKalshiMarkets
-      });
-    },
-    [manualParlay, overlayData.gameState, livePlayers, fallbackPlayers, overlayData.positions, manualKalshiMarkets]
-  );
-  const manualStatusCounts = useMemo(
-    () =>
-      manualOverlayChips.reduce(
-        (accumulator, chip) => {
-          accumulator[chip.status] += 1;
-          return accumulator;
-        },
-        {
-          hit: 0,
-          live: 0,
-          behind: 0,
-          unavailable: 0
-        } satisfies Record<ManualLegOverlayChip["status"], number>
-      ),
-    [manualOverlayChips]
-  );
+  }, [settings, watchlist]);
 
   async function updateUiState(next: OverlayUiState) {
     setUiState(next);
     await saveOverlayUiState(next);
   }
 
-  if (!uiState || !settings || !manualParlay) {
+  const watchedMarkets = useMemo(
+    () =>
+      watchlist.map((item) => ({
+        item,
+        market: marketsByTicker[item.ticker]
+      })),
+    [watchlist, marketsByTicker]
+  );
+  const watchCount = watchedMarkets.length;
+  const totalPositionCount = watchedMarkets.filter(
+    ({ market }) => market?.position && market.position.contracts > 0
+  ).length;
+  const lastUpdated = formatUpdatedTime(overlayStatus.lastUpdated);
+
+  if (!uiState || !settings) {
     return null;
   }
-
-  const isManualMode = settings.dataMode === "manual";
-  const scoreline = `${gameState.awayTeam.shortName} ${gameState.awayTeam.score} - ${gameState.homeTeam.shortName} ${gameState.homeTeam.score}`;
-  const clock =
-    gameState.gameStatus === "live"
-      ? `${gameState.quarter} ${gameState.gameClock}`
-      : gameState.gameStatus === "final"
-        ? "Final"
-        : "Not started";
-  const fullGameTitle = `${gameState.homeTeam.name} vs ${gameState.awayTeam.name}`;
-  const lastUpdated = formatUpdatedTime(
-    isManualMode ? manualParlay.updatedAt : overlayStatus.lastUpdated ?? gameState.updatedAt
-  );
-  const spread = gameState.homeTeam.score - gameState.awayTeam.score;
-  const minimizedLabel = isManualMode
-    ? `Kalshi | ${manualParlay.legs.length} legs | ${formatAmericanOdds(manualParlay.currentOdds)}`
-    : `Kalshi | ${activePositions} active | NYK ${spread >= 0 ? "+" : ""}${spread}`;
-  const parlayOddsMovement = getOddsMovement(manualParlay.originalOdds, manualParlay.currentOdds);
-  const compactParlaySummary = formatParlayOddsTicker(manualParlay);
-  const compactParlayDetail = formatParlayOddsTickerDetail(manualParlay);
-  const trackedManualLegsCount = manualParlay.legs.length - manualStatusCounts.unavailable;
-  const watchManualLegsCount = manualStatusCounts.live + manualStatusCounts.behind;
-  const compactManualStatusSummary = `${trackedManualLegsCount} tracked · ${manualStatusCounts.hit} hit${watchManualLegsCount ? ` · ${watchManualLegsCount} watch` : ""}${manualStatusCounts.unavailable ? ` · ${manualStatusCounts.unavailable} unavailable` : ""}`;
 
   if (uiState.closed) {
     return (
       <button
+        type="button"
         className="klo-pill"
         onClick={() =>
           void updateUiState({
@@ -601,14 +345,17 @@ export function OverlayApp() {
           })
         }
       >
-        Open Kalshi Overlay
+        Open Kalshi Market Tracker
       </button>
     );
   }
 
+  const minimizedLabel = `Kalshi | ${watchCount} watched${watchCount ? ` | Updated ${lastUpdated}` : ""}`;
+
   if (uiState.minimized) {
     return (
       <button
+        type="button"
         className="klo-pill"
         onClick={() =>
           void updateUiState({
@@ -630,102 +377,34 @@ export function OverlayApp() {
         <aside className="klo-top-ticker">
           <div className="klo-ticker-left">
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
-            {isManualMode ? (
-              <>
-                <span className="klo-info-chip klo-title-chip">{manualParlay.parlayName}</span>
-                <span className="klo-info-chip">{scoreline}</span>
-                <span className="klo-info-chip">{clock}</span>
-              </>
-            ) : (
-              <>
-                <span className="klo-info-chip">{scoreline}</span>
-                <span className="klo-info-chip">{clock}</span>
-              </>
-            )}
+            <span className="klo-info-chip klo-title-chip">Market Tracker</span>
+            <span className="klo-info-chip">{watchCount} watched</span>
           </div>
 
           <div className="klo-ticker-center">
-            {isManualMode
-              ? (
-                <>
-                  <div
-                    className="klo-info-chip klo-parlay-summary-chip"
-                    title={`${compactParlaySummary} | ${compactParlayDetail} | ${compactManualStatusSummary}`}
-                  >
-                    {compactParlaySummary} | {compactManualStatusSummary}
+            {watchedMarkets.length === 0 ? (
+              <div className="klo-info-chip">Add a watched market in the popup to begin tracking.</div>
+            ) : (
+              watchedMarkets.map(({ item, market }) => {
+                const movement = getMovementCents(item, market);
+                const tone = getMovementTone(movement);
+
+                return (
+                  <div className={`klo-bet-chip ${tone}`} key={item.ticker} title={item.ticker}>
+                    <span className="klo-chip-label">{renderTickerLabel(item, market)}</span>
+                    <span
+                      className="klo-chip-progress"
+                      style={{ width: `${getProgressValue(item, market)}%` }}
+                    />
                   </div>
-
-                  {manualOverlayChips.map((chip) => {
-                    const chipColor = getManualChipColor(chip.status);
-
-                    return (
-                      <div
-                        className={`klo-bet-chip ${getManualChipTone(chip.status)}`}
-                        key={chip.id}
-                        title={chip.oddsText ? `${chip.needsText} | ${chip.oddsText}` : chip.needsText}
-                      >
-                        <span className="klo-chip-label">{chip.oddsText ? `${chip.label} | ${chip.oddsText}` : chip.label}</span>
-                        <span
-                          className="klo-chip-progress"
-                          style={{
-                            width: `${chip.progressPercent}%`,
-                            backgroundColor: chipColor
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </>
-              )
-              : (
-                <>
-                  {positionChips.map((position) => {
-                    const chipColor = getChipStatusColor(position.status);
-
-                    return (
-                      <div
-                        className={`klo-bet-chip ${getChipTone(position.status)}`}
-                        key={position.id}
-                        title={position.marketTitle}
-                      >
-                        <span className="klo-chip-label">{renderPositionLabel(position, gameState)}</span>
-                        <span
-                          className="klo-chip-progress"
-                          style={{
-                            width: `${getChipProgress(position)}%`,
-                            backgroundColor: chipColor
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-
-                  {playerChips.map((playerStat) => {
-                    const chipColor = getChipStatusColor(playerStat.status);
-
-                    return (
-                      <div
-                        className={`klo-bet-chip ${getChipTone(playerStat.status)}`}
-                        key={playerStat.id}
-                        title={playerStat.whatIsNeeded}
-                      >
-                        <span className="klo-chip-label">{formatPlayerChipLabel(playerStat)}</span>
-                        <span
-                          className="klo-chip-progress"
-                          style={{
-                            width: `${getChipProgress(playerStat)}%`,
-                            backgroundColor: chipColor
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </>
-              )}
+                );
+              })
+            )}
           </div>
 
           <div className="klo-ticker-right">
             <button
+              type="button"
               className="klo-view-toggle"
               onClick={() =>
                 void updateUiState({
@@ -737,13 +416,14 @@ export function OverlayApp() {
               {toggleLabel}
             </button>
             <span className="klo-info-chip klo-status-chip">
-              {isManualMode ? `${manualParlay.legs.length} legs · ${trackedManualLegsCount} tracked` : `${activePositions} active`}
+              {totalPositionCount} read-only position{totalPositionCount === 1 ? "" : "s"}
             </span>
-            {overlayStatus.state === "error" && overlayStatus.message ? (
+            {overlayStatus.message ? (
               <span className="klo-info-chip klo-status-chip">{overlayStatus.message}</span>
             ) : null}
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
+              type="button"
               className="klo-min-button"
               onClick={() =>
                 void updateUiState({
@@ -756,15 +436,18 @@ export function OverlayApp() {
             </button>
           </div>
         </aside>
-      ) : isManualMode ? (
+      ) : (
         <aside className="klo-card-view">
           <div className="klo-card-header">
             <div>
-              <div className="klo-card-brand">Kalshi Live Overlay</div>
-              <div className="klo-card-subtitle">{manualParlay.parlayName} · {fullGameTitle}</div>
+              <div className="klo-card-brand">Kalshi Market Tracker</div>
+              <div className="klo-card-subtitle">
+                {watchCount} watched market{watchCount === 1 ? "" : "s"} · Public env {backendStatus?.kalshiPublicEnv ?? "production"}
+              </div>
             </div>
             <div className="klo-card-actions">
               <button
+                type="button"
                 className="klo-view-toggle"
                 onClick={() =>
                   void updateUiState({
@@ -776,6 +459,7 @@ export function OverlayApp() {
                 {toggleLabel}
               </button>
               <button
+                type="button"
                 className="klo-min-button"
                 onClick={() =>
                   void updateUiState({
@@ -787,6 +471,7 @@ export function OverlayApp() {
                 Min
               </button>
               <button
+                type="button"
                 className="klo-min-button"
                 onClick={() =>
                   void updateUiState({
@@ -801,265 +486,114 @@ export function OverlayApp() {
           </div>
 
           <section className="klo-scoreboard-card">
-            {overlayStatus.state === "error" && overlayStatus.message ? (
+            <div className="klo-summary-eyebrow">Tracker Summary</div>
+            <div className="klo-scoreboard-row">
+              <span>Watched markets</span>
+              <strong>{watchCount}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Read-only positions</span>
+              <strong>{totalPositionCount}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Last sync</span>
+              <strong>{lastUpdated}</strong>
+            </div>
+            <div className="klo-scoreboard-meta">
+              Market prices are tracked from Kalshi public market data. Game or player stats may be unavailable from Kalshi for many markets.
+            </div>
+            {overlayStatus.message ? (
               <div className="klo-scoreboard-meta">{overlayStatus.message}</div>
             ) : null}
-            <div className="klo-summary-eyebrow">Parlay Summary</div>
-            <div className="klo-scoreboard-row">
-              <span>Amount wagered</span>
-              <strong>{formatCurrency(manualParlay.amountWagered)}</strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>Estimated payout</span>
-              <strong>{formatCurrency(manualParlay.estimatedPayout)}</strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>Odds</span>
-              <strong>
-                {formatAmericanOdds(manualParlay.originalOdds)} {"->"} {formatAmericanOdds(manualParlay.currentOdds)}
-              </strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>Implied chance</span>
-              <strong>
-                {(americanOddsToImpliedProbability(manualParlay.originalOdds) * 100).toFixed(1)}% {"->"} {(americanOddsToImpliedProbability(manualParlay.currentOdds) * 100).toFixed(1)}%
-              </strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>Movement</span>
-              <strong>
-                Chance {directionArrow(parlayOddsMovement.probabilityDirection)} · Payout {parlayOddsMovement.payoutDirection}
-              </strong>
-            </div>
-            <div className="klo-summary-chips">
-              <span className="klo-summary-chip is-live">{trackedManualLegsCount} tracked</span>
-              <span className="klo-summary-chip is-good">{manualStatusCounts.hit} hit</span>
-              <span className="klo-summary-chip is-bad">{watchManualLegsCount} watch</span>
-              <span className="klo-summary-chip is-unavailable">{manualStatusCounts.unavailable} unavailable</span>
-            </div>
-            <div className="klo-scoreboard-meta">Manual parlay mode · updated {lastUpdated}</div>
           </section>
 
           <section className="klo-card-section">
-            <div className="klo-section-title">Manual Parlay Legs</div>
-            {manualParlay.legs.length === 0 ? (
+            <div className="klo-section-title">Watched Kalshi Markets</div>
+            {watchedMarkets.length === 0 ? (
               <article className="klo-position-card">
-                <div className="klo-card-title">No legs entered yet</div>
+                <div className="klo-card-title">No watched markets yet</div>
                 <div className="klo-card-meta">
-                  <span>Open the popup to add player props, moneylines, spreads, totals, or manual Kalshi-style markets.</span>
+                  <span>Open the popup and add a Kalshi market to your watchlist.</span>
                 </div>
               </article>
             ) : (
-              manualOverlayChips.map((chip, index) => {
-                const leg = manualParlay.legs[index];
-                const legOddsMovement =
-                  typeof leg?.originalOdds === "number" && typeof leg.currentOdds === "number"
-                    ? getOddsMovement(leg.originalOdds, leg.currentOdds)
-                    : null;
+              watchedMarkets.map(({ item, market }) => {
+                const movement = getMovementCents(item, market);
+                const tone = getMovementTone(movement);
+                const trackedPosition = market?.position ?? null;
 
                 return (
-                  <article className={`klo-position-card klo-manual-leg-card ${getManualChipTone(chip.status)}`} key={chip.id}>
+                  <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
                     <div className="klo-card-meta klo-card-meta-top">
-                      <div className="klo-card-title">{chip.label}</div>
-                      <span className={`klo-status-badge ${getManualChipTone(chip.status)}`}>
-                        {getManualChipBadgeLabel(chip.status)}
+                      <div className="klo-card-title">{item.title}</div>
+                      <span className={`klo-status-badge ${statusTone(market?.status)}`}>
+                        {market?.status ?? "unavailable"}
                       </span>
                     </div>
-                    {(typeof chip.current === "number" || typeof chip.target === "number") ? (
+                    <div className="klo-card-meta">
+                      <span>Ticker</span>
+                      <span>{item.ticker}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>YES bid / ask</span>
+                      <span>{formatPrice(market?.yesBidCents)} / {formatPrice(market?.yesAskCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>NO bid / ask</span>
+                      <span>{formatPrice(market?.noBidCents)} / {formatPrice(market?.noAskCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Last price</span>
+                      <span>{formatPrice(market?.lastPriceCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Your tracked side</span>
+                      <span>{item.userSide}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Entry price</span>
+                      <span>{formatPrice(item.entryPriceCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Movement</span>
+                      <span>{formatMovement(movement)}</span>
+                    </div>
+                    {trackedPosition ? (
                       <div className="klo-card-meta">
+                        <span>Read-only position</span>
                         <span>
-                          Live progress
-                        </span>
-                        <span>
-                          {typeof chip.current === "number" ? chip.current : "--"}
-                          {typeof chip.target === "number" ? ` / ${chip.target}` : ""}
+                          {trackedPosition.side} · {trackedPosition.contracts} @ {formatPrice(trackedPosition.entryPriceCents)}
                         </span>
                       </div>
                     ) : null}
                     <div className="klo-card-meta">
-                      <span>{chip.needsText}</span>
+                      <span>Volume</span>
+                      <span>{formatVolume(market?.volume)}</span>
                     </div>
-                    {leg?.type === "prediction_market" ? (
-                      <>
-                        <div className="klo-card-meta">
-                          <span>Market title</span>
-                          <span>{chip.marketTitle ?? leg.marketTitle}</span>
-                        </div>
-                        <div className="klo-card-meta">
-                          <span>User side</span>
-                          <span>{chip.userSide ?? leg.userSide}</span>
-                        </div>
-                        <div className="klo-card-meta">
-                          <span>YES / NO price</span>
-                          <span>
-                            {formatManualPredictionPrice(chip.yesPrice)} / {formatManualPredictionPrice(chip.noPrice)}
-                          </span>
-                        </div>
-                        <div className="klo-card-meta">
-                          <span>Original {"->"} current</span>
-                          <span>
-                            {formatManualPredictionPrice(chip.originalPrice ?? leg.originalPrice)} {"->"} {formatManualPredictionPrice(chip.currentPrice ?? leg.currentPrice)}
-                          </span>
-                        </div>
-                        {chip.marketTicker ? (
-                          <div className="klo-card-meta">
-                            <span>Ticker</span>
-                            <span>{chip.marketTicker}</span>
-                          </div>
-                        ) : null}
-                        {typeof (chip.contractsOwned ?? leg.contractsOwned) === "number" ? (
-                          <div className="klo-card-meta">
-                            <span>Contracts owned</span>
-                            <span>{chip.contractsOwned ?? leg.contractsOwned}</span>
-                          </div>
-                        ) : null}
-                        {chip.chanceText ? (
-                          <div className="klo-card-meta">
-                            <span>Movement</span>
-                            <span>{chip.chanceText}</span>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                    {legOddsMovement ? (
+                    <div className="klo-card-meta">
+                      <span>Updated</span>
+                      <span>{formatUpdatedTime(market?.updatedAt)}</span>
+                    </div>
+                    {item.notes ? (
                       <div className="klo-card-meta">
-                        <span>
-                          Odds {formatAmericanOdds(leg.originalOdds!)} {"->"} {formatAmericanOdds(leg.currentOdds!)}
-                        </span>
-                        <span>Chance {directionArrow(legOddsMovement.probabilityDirection)}</span>
+                        <span>Notes</span>
+                        <span>{item.notes}</span>
                       </div>
                     ) : null}
-                    {legOddsMovement ? (
-                      <div className="klo-card-meta">
-                        <span>
-                          {(legOddsMovement.originalImpliedProbability * 100).toFixed(1)}% {"->"} {(legOddsMovement.currentImpliedProbability * 100).toFixed(1)}%
-                        </span>
-                        <span>Payout {legOddsMovement.payoutDirection}</span>
-                      </div>
-                    ) : null}
-                    <ProgressBar progress={chip.progressPercent} color={getManualChipColor(chip.status)} />
+                    <div className="klo-card-meta">
+                      <span>Game stats</span>
+                      <span>Unavailable from this tracker unless Kalshi supports live data for the market</span>
+                    </div>
+                    <div className="klo-progress-track">
+                      <div className="klo-progress-fill" style={{ width: `${getProgressValue(item, market)}%` }} />
+                    </div>
                   </article>
                 );
               })
             )}
           </section>
         </aside>
-      ) : (
-        <aside className="klo-card-view">
-          <div className="klo-card-header">
-            <div>
-              <div className="klo-card-brand">Kalshi Live Overlay</div>
-              <div className="klo-card-subtitle">{fullGameTitle}</div>
-            </div>
-            <div className="klo-card-actions">
-              <button
-                className="klo-view-toggle"
-                onClick={() =>
-                  void updateUiState({
-                    ...uiState,
-                    viewMode: "ticker"
-                  })
-                }
-              >
-                {toggleLabel}
-              </button>
-              <button
-                className="klo-min-button"
-                onClick={() =>
-                  void updateUiState({
-                    ...uiState,
-                    minimized: true
-                  })
-                }
-              >
-                Min
-              </button>
-              <button
-                className="klo-min-button"
-                onClick={() =>
-                  void updateUiState({
-                    ...uiState,
-                    closed: true
-                  })
-                }
-              >
-                Close
-              </button>
-            </div>
-          </div>
-
-          <section className="klo-scoreboard-card">
-            {overlayStatus.state === "error" && overlayStatus.message ? (
-              <div className="klo-scoreboard-meta">{overlayStatus.message}</div>
-            ) : null}
-            <div className="klo-scoreboard-row">
-              <span>{gameState.awayTeam.shortName}</span>
-              <strong>{gameState.awayTeam.score}</strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>{gameState.homeTeam.shortName}</span>
-              <strong>{gameState.homeTeam.score}</strong>
-            </div>
-            <div className="klo-scoreboard-meta">{clock}</div>
-          </section>
-
-          <section className="klo-card-section">
-            <div className="klo-section-title">Kalshi Positions</div>
-            {overlayData.positions.map((position) => {
-              const pnl = position.unrealizedPnLCents >= 0 ? `+${position.unrealizedPnLCents}` : `${position.unrealizedPnLCents}`;
-              const move = position.currentPriceCents - position.entryPriceCents;
-              const moveText = move >= 0 ? `+${move}` : `${move}`;
-
-              return (
-                <article className="klo-position-card" key={position.id}>
-                  <div className="klo-card-title">{position.marketTitle}</div>
-                  <div className="klo-card-meta">
-                    <span>{position.side}</span>
-                    <span>{position.contracts} contracts</span>
-                  </div>
-                  <div className="klo-card-meta">
-                    <span>
-                      {position.id === "knicks-moneyline"
-                        ? formatMoneylineCardLabel(position, gameState)
-                        : `${position.currentPriceCents}% · entry ${position.entryPriceCents}% · ${moveText}`}
-                    </span>
-                  </div>
-                  <div className="klo-card-meta">
-                    <span>P/L {pnl}</span>
-                    <span>{position.whatNeedsToHappen}</span>
-                  </div>
-                  <ProgressBar progress={getChipProgress(position)} color={getChipStatusColor(position.status)} />
-                </article>
-              );
-            })}
-          </section>
-
-          <section className="klo-card-section">
-            <div className="klo-section-title">Player Stat Tracker</div>
-            {gameState.playerStats.map((playerStat) => (
-              <article className="klo-player-card" key={playerStat.id}>
-                <div className="klo-card-meta klo-card-meta-top">
-                  <div className="klo-card-title">{playerStat.playerName}</div>
-                  <span className={`klo-status-badge ${getChipTone(playerStat.status)}`}>
-                    {getStatusBadgeLabel(playerStat.status)}
-                  </span>
-                </div>
-                <div className="klo-card-meta">
-                  <span>{playerStat.statType}</span>
-                  <span>{formatPlayerChipLabel(playerStat)}</span>
-                </div>
-                <ProgressBar progress={getChipProgress(playerStat)} color={getChipStatusColor(playerStat.status)} />
-              </article>
-            ))}
-          </section>
-        </aside>
       )}
-
-      {overlayStatus.state !== "ready" && !isManualMode ? (
-        <div className={`klo-status-banner ${overlayStatus.state}`}>
-          {overlayStatus.message ?? (overlayStatus.state === "loading" ? "Loading overlay data..." : "Backend error")}
-        </div>
-      ) : null}
     </>
   );
 }
