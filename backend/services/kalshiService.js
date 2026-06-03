@@ -905,6 +905,24 @@ function getSearchTokens(value) {
   return compact.length >= 4 ? [...tokens, compact] : tokens;
 }
 
+const GENERIC_SEARCH_TERMS = new Set([
+  "yes",
+  "no",
+  "over",
+  "under",
+  "game",
+  "score",
+  "market",
+  "sports",
+  "sport",
+  "total",
+  "line"
+]);
+
+function getMeaningfulSearchTokens(value) {
+  return getSearchTokens(value).filter((token) => !GENERIC_SEARCH_TERMS.has(token));
+}
+
 const TEAM_SEARCH_ALIASES = {
   knicks: "nyk",
   spurs: "sas",
@@ -1053,16 +1071,132 @@ const TEAM_SEARCH_ALIASES = {
   champions: "champions",
   tennis: "tennis",
   golf: "golf",
-  wnba: "wnba"
+  wnba: "wnba",
+  stephon: "stephon",
+  castle: "stephon castle",
+  assists: "ast",
+  assist: "ast",
+  ast: "ast"
 };
+
+const SMART_TEAM_ALIASES = [
+  { sport: "NBA", team: "New York Knicks", abbreviation: "NYK", aliases: ["knicks", "new york knicks", "nyk", "new york"] },
+  { sport: "NBA", team: "San Antonio Spurs", abbreviation: "SAS", aliases: ["spurs", "san antonio spurs", "sas", "san antonio"] },
+  { sport: "NBA", team: "Boston Celtics", abbreviation: "BOS", aliases: ["celtics", "boston celtics", "bos", "boston"] },
+  { sport: "NBA", team: "Los Angeles Lakers", abbreviation: "LAL", aliases: ["lakers", "los angeles lakers", "lal", "los angeles"] },
+  { sport: "NBA", team: "Oklahoma City Thunder", abbreviation: "OKC", aliases: ["thunder", "oklahoma city thunder", "okc", "oklahoma city"] },
+  { sport: "NBA", team: "Cleveland Cavaliers", abbreviation: "CLE", aliases: ["cavaliers", "cavs", "cleveland cavaliers", "cle", "cleveland"] },
+  { sport: "MLB", team: "Texas Rangers", abbreviation: "TEX", aliases: ["rangers", "texas rangers", "tex", "texas"] },
+  { sport: "MLB", team: "St. Louis Cardinals", abbreviation: "STL", aliases: ["cardinals", "st. louis cardinals", "st louis cardinals", "stl", "st louis"] },
+  { sport: "MLB", team: "New York Yankees", abbreviation: "NYY", aliases: ["yankees", "new york yankees", "nyy", "new york"] },
+  { sport: "MLB", team: "New York Mets", abbreviation: "NYM", aliases: ["mets", "new york mets", "nym", "new york"] },
+  { sport: "MLB", team: "Los Angeles Dodgers", abbreviation: "LAD", aliases: ["dodgers", "los angeles dodgers", "lad", "los angeles"] },
+  { sport: "MLB", team: "Boston Red Sox", abbreviation: "BOS", aliases: ["red sox", "redsox", "boston red sox", "bos", "boston"] },
+  { sport: "NFL", team: "Kansas City Chiefs", abbreviation: "KC", aliases: ["chiefs", "kansas city chiefs", "kc", "kansas city"] },
+  { sport: "NFL", team: "San Francisco 49ers", abbreviation: "SF", aliases: ["49ers", "niners", "san francisco 49ers", "sf", "san francisco"] },
+  { sport: "NFL", team: "Philadelphia Eagles", abbreviation: "PHI", aliases: ["eagles", "philadelphia eagles", "phi", "philadelphia"] },
+  { sport: "NFL", team: "Dallas Cowboys", abbreviation: "DAL", aliases: ["cowboys", "dallas cowboys", "dal", "dallas"] },
+  { sport: "NFL", team: "Buffalo Bills", abbreviation: "BUF", aliases: ["bills", "buffalo bills", "buf", "buffalo"] },
+  { sport: "NFL", team: "Baltimore Ravens", abbreviation: "BAL", aliases: ["ravens", "baltimore ravens", "bal", "baltimore"] },
+  { sport: "NHL", team: "New York Rangers", abbreviation: "NYR", aliases: ["rangers", "new york rangers", "nyr", "new york"] },
+  { sport: "NHL", team: "Washington Capitals", abbreviation: "WSH", aliases: ["capitals", "caps", "washington capitals", "wsh", "washington"] },
+  { sport: "NHL", team: "Edmonton Oilers", abbreviation: "EDM", aliases: ["oilers", "edmonton oilers", "edm", "edmonton"] },
+  { sport: "NHL", team: "Florida Panthers", abbreviation: "FLA", aliases: ["panthers", "florida panthers", "fla", "florida"] }
+].map((team) => ({
+  ...team,
+  normalizedAliases: Array.from(
+    new Set([...team.aliases, team.team, team.abbreviation].map(normalizeSearchText))
+  ).filter(Boolean)
+}));
 
 function expandSearchToken(token) {
   const alias = TEAM_SEARCH_ALIASES[token];
-  return alias ? [token, alias] : [token];
+  const matchingTeamAliases = SMART_TEAM_ALIASES.filter((team) =>
+    team.normalizedAliases.includes(token)
+  ).flatMap((team) => team.normalizedAliases);
+
+  return Array.from(new Set([token, ...(alias ? [alias] : []), ...matchingTeamAliases]));
 }
 
 function getExpandedSearchTokens(value) {
-  return Array.from(new Set(getSearchTokens(value).flatMap(expandSearchToken)));
+  return Array.from(new Set(getMeaningfulSearchTokens(value).flatMap(expandSearchToken)));
+}
+
+function detectTeamsForQuery(value) {
+  const normalizedQuery = normalizeSearchText(value);
+  const queryTokens = new Set(getMeaningfulSearchTokens(value));
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return SMART_TEAM_ALIASES.map((team) => {
+    const matchedAliases = team.normalizedAliases.filter((alias) => {
+      if (!alias) {
+        return false;
+      }
+
+      const aliasTokens = alias.split(" ");
+      return (
+        normalizedQuery === alias ||
+        normalizedQuery.includes(alias) ||
+        aliasTokens.every((token) => queryTokens.has(token))
+      );
+    });
+
+    return matchedAliases.length > 0
+      ? {
+          sport: team.sport,
+          team: team.team,
+          abbreviation: team.abbreviation,
+          aliases: team.aliases,
+          normalizedAliases: team.normalizedAliases,
+          matchedAliases
+        }
+      : null;
+  }).filter(Boolean);
+}
+
+function buildSearchQueryInfo(value, resultCount = 0) {
+  const detectedTeams = detectTeamsForQuery(value);
+  const expandedTerms = Array.from(
+    new Set([
+      normalizeSearchText(value),
+      ...getExpandedSearchTokens(value),
+      ...detectedTeams.flatMap((team) => team.normalizedAliases)
+    ].filter(Boolean))
+  ).slice(0, 30);
+
+  return {
+    originalQuery: String(value ?? ""),
+    expandedTerms,
+    detectedTeams: detectedTeams.map((team) => ({
+      sport: team.sport,
+      team: team.team,
+      abbreviation: team.abbreviation,
+      matchedAliases: team.matchedAliases
+    })),
+    detectedSports: Array.from(new Set(detectedTeams.map((team) => team.sport))),
+    resultCount
+  };
+}
+
+function getSearchTeamGroups(value) {
+  const detectedTeams = detectTeamsForQuery(value);
+  const groupsByMatchedAlias = new Map();
+
+  for (const team of detectedTeams) {
+    const strongestAlias =
+      team.matchedAliases
+        .slice()
+        .sort((a, b) => b.length - a.length)[0] ?? team.team;
+
+    const existing = groupsByMatchedAlias.get(strongestAlias) ?? [];
+    existing.push(team);
+    groupsByMatchedAlias.set(strongestAlias, existing);
+  }
+
+  return Array.from(groupsByMatchedAlias.values());
 }
 
 function getSearchPageBudget(filters = {}) {
@@ -1097,16 +1231,41 @@ function marketSearchHaystack(market) {
     .toLowerCase();
 }
 
+function termMatchesHaystack(term, normalizedHaystack, rawHaystack) {
+  const normalizedTerm = normalizeSearchText(term);
+  const compactTerm = normalizedTerm.replace(/\s+/g, "");
+  const compactHaystack = normalizedHaystack.replace(/\s+/g, "");
+
+  return (
+    Boolean(normalizedTerm) &&
+    (normalizedHaystack.includes(normalizedTerm) ||
+      rawHaystack.includes(normalizedTerm) ||
+      (compactTerm.length >= 3 && compactHaystack.includes(compactTerm)))
+  );
+}
+
 function searchTokensMatchHaystack(searchTokens, haystack) {
   if (searchTokens.length === 0) {
-    return true;
+    return false;
   }
 
   const normalizedHaystack = normalizeSearchText(haystack);
+  const normalizedQuery = searchTokens.join(" ");
+  const teamGroups = getSearchTeamGroups(normalizedQuery);
+
+  if (teamGroups.length > 0) {
+    return teamGroups.every((group) =>
+      group.some((team) =>
+        team.normalizedAliases.some((alias) =>
+          termMatchesHaystack(alias, normalizedHaystack, haystack)
+        )
+      )
+    );
+  }
 
   return searchTokens.every((token) =>
     expandSearchToken(token).some(
-      (candidate) => normalizedHaystack.includes(candidate) || haystack.includes(candidate)
+      (candidate) => termMatchesHaystack(candidate, normalizedHaystack, haystack)
     )
   );
 }
@@ -1134,6 +1293,11 @@ function isDirectSportsLineTicker(ticker) {
 function marketSortScore(market, filters = {}) {
   const ticker = String(market.ticker ?? "");
   const title = String(market.title ?? "");
+  const haystack = marketSearchHaystack(market);
+  const normalizedHaystack = normalizeSearchText(haystack);
+  const normalizedTitle = normalizeSearchText(title);
+  const detectedTeams = detectTeamsForQuery(filters.search);
+  const teamGroups = getSearchTeamGroups(filters.search);
   let score = 0;
 
   if (/KX(NBA|WNBA|MLB|NFL|NHL)GAME/i.test(ticker)) score += 80;
@@ -1141,8 +1305,60 @@ function marketSortScore(market, filters = {}) {
   if (/KXMVE/i.test(ticker)) score -= 60;
   if (/get.?in price|ticket|tickets|attendance/i.test(title)) score -= 80;
 
-  if (filters.search && searchTokensMatchHaystack(getSearchTokens(filters.search), marketSearchHaystack(market))) {
+  if (filters.search) {
+    const normalizedQuery = normalizeSearchText(filters.search);
+
+    if (normalizedQuery && normalizedTitle.includes(normalizedQuery)) {
+      score += 100;
+    }
+
+    if (searchTokensMatchHaystack(getMeaningfulSearchTokens(filters.search), haystack)) {
+      score += 35;
+    }
+
+    for (const team of detectedTeams) {
+      const teamMatchedInTitle = team.normalizedAliases.some((alias) =>
+        termMatchesHaystack(alias, normalizedTitle, title.toLowerCase())
+      );
+      const teamMatchedInTicker = [team.abbreviation.toLowerCase(), ...team.normalizedAliases].some((alias) =>
+        termMatchesHaystack(alias, normalizeSearchText(ticker), ticker.toLowerCase())
+      );
+
+      if (teamMatchedInTitle) score += 45;
+      if (teamMatchedInTicker) score += 30;
+      if (normalizeFilterValue(market.competition) === normalizeFilterValue(team.sport)) score += 15;
+      if (normalizeFilterValue(market.sport) === normalizeFilterValue(team.sport)) score += 15;
+    }
+
+    const matchedGroupCount = teamGroups.filter((group) =>
+      group.some((team) =>
+        team.normalizedAliases.some((alias) => termMatchesHaystack(alias, normalizedHaystack, haystack))
+      )
+    ).length;
+
+    if (teamGroups.length >= 2 && matchedGroupCount >= 2) {
+      score += 120;
+    }
+  }
+
+  if (market.isActive || market.lifecycleStatus === "open") {
     score += 20;
+  }
+
+  if (market.isResolved || ["settled", "finalized", "closed"].includes(market.lifecycleStatus)) {
+    score -= 40;
+  }
+
+  if (typeof market.volume === "number" && market.volume > 0) {
+    score += Math.min(25, Math.log10(market.volume + 1) * 8);
+  }
+
+  if (market.closeTime) {
+    const closeTime = new Date(market.closeTime).getTime();
+
+    if (Number.isFinite(closeTime)) {
+      score += closeTime >= Date.now() ? 10 : -10;
+    }
   }
 
   return score;
@@ -1203,7 +1419,7 @@ function marketMatchesFilter(market, filters = {}) {
   const sport = normalizeFilterValue(filters.sport);
   const competition = normalizeFilterValue(filters.competition);
   const scope = normalizeFilterValue(filters.scope);
-  const searchTokens = getSearchTokens(filters.search);
+  const searchTokens = getMeaningfulSearchTokens(filters.search);
 
   if (sport && normalizeFilterValue(market.sport) !== sport) {
     return false;
@@ -1217,7 +1433,7 @@ function marketMatchesFilter(market, filters = {}) {
     return false;
   }
 
-  if (searchTokens.length > 0) {
+  if (String(filters.search ?? "").trim()) {
     return searchTokensMatchHaystack(searchTokens, marketSearchHaystack(market));
   }
 
@@ -1672,6 +1888,7 @@ class KalshiService {
       .sort((a, b) => marketSortScore(b, filters) - marketSortScore(a, filters))
       .filter((market, index, allMarkets) => allMarkets.findIndex((entry) => entry.ticker === market.ticker) === index)
       .slice(0, limit);
+    const queryInfo = buildSearchQueryInfo(filters.search, markets.length);
 
     const result = {
       ...(response ?? {
@@ -1679,7 +1896,8 @@ class KalshiService {
         environment: this.getPublicEnvironment(),
         cursor: null
       }),
-      markets
+      markets,
+      queryInfo
     };
 
     if (cacheKey) {
@@ -2140,6 +2358,12 @@ class KalshiService {
   }
 }
 
-export { normalizeKalshiMarket, normalizeTrackedMarket };
+export {
+  buildSearchQueryInfo,
+  marketMatchesFilter,
+  marketSortScore,
+  normalizeKalshiMarket,
+  normalizeTrackedMarket
+};
 
 export const kalshiService = new KalshiService();

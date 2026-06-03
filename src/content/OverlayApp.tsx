@@ -360,6 +360,8 @@ type ComboStatus = "live" | "won" | "lost" | "incomplete data";
 
 interface ComboSummary {
   estimatedProbability: number | null;
+  estimatedPayout: number | null;
+  estimatedProfit: number | null;
   status: ComboStatus;
   liveCount: number;
   wonCount: number;
@@ -422,8 +424,17 @@ function getComboSummary(
           ? "won"
           : "live";
 
+  const estimatedProbability = hasProbability ? probabilityProduct * 100 : null;
+  const estimatedPayout =
+    typeof estimatedProbability === "number" && estimatedProbability > 0
+      ? combo.amountRisked / (estimatedProbability / 100)
+      : null;
+
   return {
-    estimatedProbability: hasProbability ? probabilityProduct * 100 : null,
+    estimatedProbability,
+    estimatedPayout,
+    estimatedProfit:
+      typeof estimatedPayout === "number" ? estimatedPayout - combo.amountRisked : null,
     status,
     liveCount,
     wonCount,
@@ -454,7 +465,7 @@ function renderComboTickerLabel(
   combo: KalshiComboTracker,
   summary: ComboSummary
 ): string {
-  return `${truncateTitle(combo.name)} | Est. ${formatComboProbability(summary.estimatedProbability)} | ${summary.liveCount} live / ${summary.wonCount} won | status ${summary.status}`;
+  return `${truncateTitle(combo.name)} | Risk ${formatDollars(combo.amountRisked)} | Est. ${formatComboProbability(summary.estimatedProbability)} | Pays ~${formatDollars(summary.estimatedPayout)} | ${summary.status}`;
 }
 
 function formatLiveContextSnippet(liveContext?: KalshiLiveContext): string {
@@ -718,7 +729,7 @@ export function OverlayApp() {
     [watchlist, marketsByTicker]
   );
   const activeComboTrackers = useMemo(
-    () => comboTrackers.filter((combo) => !combo.archived),
+    () => comboTrackers.filter((combo) => !combo.archived && combo.legs.length > 0),
     [comboTrackers]
   );
   const comboSummaries = useMemo(
@@ -1155,8 +1166,20 @@ export function OverlayApp() {
                   </div>
                   <div className="klo-card-primary-grid">
                     <div className="klo-primary-row">
+                      <span>Risk</span>
+                      <strong>{formatDollars(combo.amountRisked)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
                       <span>Est. combo chance</span>
                       <strong>{formatComboProbability(summary.estimatedProbability)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
+                      <span>Est. payout</span>
+                      <strong>{formatDollars(summary.estimatedPayout)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
+                      <span>Est. profit</span>
+                      <strong>{formatDollars(summary.estimatedProfit)}</strong>
                     </div>
                     <div className="klo-primary-row">
                       <span>Legs</span>

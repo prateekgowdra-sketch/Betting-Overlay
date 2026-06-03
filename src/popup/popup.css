@@ -13,7 +13,7 @@
 
 body {
   margin: 0;
-  min-width: 420px;
+  min-width: 560px;
   background: transparent;
 }
 
@@ -55,6 +55,23 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  order: 0;
+}
+
+.combo-panel {
+  order: 1;
+}
+
+.settings-panel {
+  order: 2;
+}
+
+.search-panel {
+  order: 3;
+}
+
+.watchlist-panel {
+  order: 4;
 }
 
 .hero h1,
@@ -201,6 +218,13 @@ button {
   padding-top: 4px;
 }
 
+.search-explain {
+  color: #bdd2e6;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 8px;
+}
+
 .search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px 92px;
@@ -208,13 +232,33 @@ button {
   align-items: stretch;
 }
 
-.combo-create-row,
-.combo-add-row {
+.combo-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.combo-builder label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #bdd2e6;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.combo-builder-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.combo-search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: stretch;
-  margin-bottom: 10px;
 }
 
 .filter-row {
@@ -227,8 +271,8 @@ button {
 
 .search-row input,
 .search-row select,
-.combo-create-row input,
-.combo-add-row select,
+.combo-builder input,
+.combo-search-row input,
 .filter-row select {
   width: 100%;
   border: 1px solid rgba(138, 173, 210, 0.22);
@@ -245,7 +289,7 @@ button {
   cursor: not-allowed;
 }
 
-.combo-add-row button:disabled {
+.combo-builder button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -278,6 +322,54 @@ button {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid rgba(122, 167, 212, 0.12);
+}
+
+.combo-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.combo-result-card {
+  border-radius: 12px;
+  background: rgba(8, 20, 34, 0.72);
+  border: 1px solid rgba(122, 167, 212, 0.12);
+  padding: 10px;
+}
+
+.combo-result-actions,
+.combo-builder-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.section-mini-title {
+  color: #eef6ff;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.combo-saved-leg {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #bdd2e6;
+  font-size: 12px;
+  padding-top: 8px;
+  min-width: 0;
+}
+
+.combo-saved-leg span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat-label,

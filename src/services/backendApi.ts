@@ -44,6 +44,18 @@ export interface KalshiMarketsResponse {
   environment: "demo" | "production";
   markets: KalshiMarketSnapshot[];
   cursor: string | null;
+  queryInfo?: {
+    originalQuery: string;
+    expandedTerms: string[];
+    detectedTeams: Array<{
+      sport: string;
+      team: string;
+      abbreviation: string;
+      matchedAliases: string[];
+    }>;
+    detectedSports: string[];
+    resultCount: number;
+  };
 }
 
 export interface KalshiSportsFiltersResponse {

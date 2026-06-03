@@ -21,6 +21,12 @@ import {
   KalshiWatchlistItem
 } from "../shared/types";
 
+interface ComboLegSearchGroup {
+  query: string;
+  markets: KalshiMarketSnapshot[];
+  queryInfo: KalshiMarketsResponse["queryInfo"] | null;
+}
+
 function formatProviderLabel(provider?: string): string {
   switch (provider) {
     case "balldontlie":
@@ -49,6 +55,19 @@ function formatVolume(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+function formatDollars(value: number | null | undefined): string {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -71,6 +90,28 @@ function getResultLabel(market: KalshiMarketSnapshot): string {
   }
 
   return `Finalized - ${market.winningSide} won`;
+}
+
+function formatSearchExpansion(queryInfo: KalshiMarketsResponse["queryInfo"] | null): string {
+  if (!queryInfo || queryInfo.expandedTerms.length === 0 || !queryInfo.originalQuery.trim()) {
+    return "";
+  }
+
+  return `Showing results for: ${queryInfo.expandedTerms.slice(0, 8).join(", ")}`;
+}
+
+function formatDetectedTeams(queryInfo: KalshiMarketsResponse["queryInfo"] | null): string {
+  if (!queryInfo || queryInfo.detectedTeams.length === 0) {
+    return "";
+  }
+
+  const teams = queryInfo.detectedTeams
+    .map((team) => `${team.team} (${team.sport})`)
+    .join(", ");
+
+  return queryInfo.detectedTeams.length > 1
+    ? `Possible teams: ${teams}`
+    : `Detected team: ${teams}`;
 }
 
 function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapshot): number {
@@ -99,6 +140,26 @@ function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapsh
   }
 
   return 50;
+}
+
+function isComboLegEditable(leg: KalshiComboTracker["legs"][number]): boolean {
+  if (leg.isResolved) {
+    return false;
+  }
+
+  if (["closed", "finalized", "settled", "expired"].includes(String(leg.lifecycleStatus ?? leg.status ?? "").toLowerCase())) {
+    return false;
+  }
+
+  if (leg.closeTime) {
+    const closeTime = new Date(leg.closeTime).getTime();
+
+    if (Number.isFinite(closeTime) && closeTime <= Date.now()) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function loadSearchResults(
@@ -130,12 +191,20 @@ export function PopupApp() {
   const [selectedCompetition, setSelectedCompetition] = useState("");
   const [selectedScope, setSelectedScope] = useState("");
   const [searchResults, setSearchResults] = useState<KalshiMarketSnapshot[]>([]);
+  const [searchQueryInfo, setSearchQueryInfo] = useState<KalshiMarketsResponse["queryInfo"] | null>(null);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchError, setSearchError] = useState("");
   const [isLoadingResults, setIsLoadingResults] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [newComboName, setNewComboName] = useState("");
-  const [comboLegSelections, setComboLegSelections] = useState<Record<string, string>>({});
+  const [newComboAmountRisked, setNewComboAmountRisked] = useState(0);
+  const [comboBuilderLegs, setComboBuilderLegs] = useState<KalshiComboTracker["legs"]>([]);
+  const [comboLegSearchQuery, setComboLegSearchQuery] = useState("");
+  const [comboLegSearchGroups, setComboLegSearchGroups] = useState<ComboLegSearchGroup[]>([]);
+  const [comboLegSearchError, setComboLegSearchError] = useState("");
+  const [comboSaveMessage, setComboSaveMessage] = useState("");
+  const [isLoadingComboLegs, setIsLoadingComboLegs] = useState(false);
+  const [hasSearchedComboLegs, setHasSearchedComboLegs] = useState(false);
 
   useEffect(() => {
     void Promise.all([
@@ -162,6 +231,7 @@ export function PopupApp() {
 
       if (initialResults) {
         setSearchResults(initialResults.markets);
+        setSearchQueryInfo(initialResults.queryInfo ?? null);
         setSearchCursor(initialResults.cursor);
       }
 
@@ -211,10 +281,12 @@ export function PopupApp() {
         nextScope
       );
       setSearchResults(response.markets);
+      setSearchQueryInfo(response.queryInfo ?? null);
       setSearchCursor(response.cursor);
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Search failed");
       setSearchResults([]);
+      setSearchQueryInfo(null);
       setSearchCursor(null);
     } finally {
       setIsLoadingResults(false);
@@ -256,6 +328,7 @@ export function PopupApp() {
   }));
   const visibleWatchlist = watchlist.filter((item) => !item.archived && !item.hidden);
   const activeComboTrackers = comboTrackers.filter((combo) => !combo.archived);
+  const savedComboTrackers = activeComboTrackers.filter((combo) => combo.legs.length > 0);
 
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
@@ -309,6 +382,12 @@ export function PopupApp() {
     const name = newComboName.trim();
 
     if (!name) {
+      setComboSaveMessage("Enter a combo name.");
+      return;
+    }
+
+    if (comboBuilderLegs.length === 0) {
+      setComboSaveMessage("Add at least one leg before saving.");
       return;
     }
 
@@ -316,14 +395,106 @@ export function PopupApp() {
     const nextCombo: KalshiComboTracker = {
       id: `combo-${Date.now()}`,
       name,
-      legs: [],
+      amountRisked: roundCurrency(Math.max(0, newComboAmountRisked)),
+      legs: comboBuilderLegs,
       archived: false,
       createdAt: now,
       updatedAt: now
     };
 
     setNewComboName("");
+    setNewComboAmountRisked(0);
+    setComboBuilderLegs([]);
+    setComboLegSearchQuery("");
+    setComboLegSearchGroups([]);
+    setHasSearchedComboLegs(false);
+    setComboSaveMessage("");
     await persistComboTrackers([...comboTrackers, nextCombo]);
+  }
+
+  async function runComboLegSearch(nextQuery = comboLegSearchQuery) {
+    const query = nextQuery.trim();
+
+    if (!query) {
+      setComboLegSearchGroups([]);
+      setComboLegSearchError("");
+      setHasSearchedComboLegs(false);
+      return;
+    }
+
+    setIsLoadingComboLegs(true);
+    setHasSearchedComboLegs(true);
+    setComboLegSearchError("");
+
+    try {
+      const queries = query
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      const responses = await Promise.all(
+        queries.map(async (part) => ({
+          query: part,
+          response: await loadSearchResults(part, "open", "", "", "")
+        }))
+      );
+
+      setComboLegSearchGroups(
+        responses.map(({ query: groupQuery, response }) => ({
+          query: groupQuery,
+          markets: response.markets.slice(0, 8),
+          queryInfo: response.queryInfo ?? null
+        }))
+      );
+    } catch (error) {
+      setComboLegSearchError(error instanceof Error ? error.message : "Combo leg search failed");
+      setComboLegSearchGroups([]);
+    } finally {
+      setIsLoadingComboLegs(false);
+    }
+  }
+
+  function addMarketToComboBuilder(market: KalshiMarketSnapshot, side: KalshiMarketSide) {
+    if (comboBuilderLegs.some((leg) => leg.ticker === market.ticker && leg.userSide === side)) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setComboSaveMessage("");
+    setComboBuilderLegs((current) => [
+      ...current,
+      {
+        id: `leg-${market.ticker}-${side}-${Date.now()}`,
+        ticker: market.ticker,
+        eventTicker: market.eventTicker ?? null,
+        title: market.title,
+        displayTitle: market.displayTitle ?? null,
+        subtitle: market.subtitle ?? null,
+        sport: market.sport ?? null,
+        competition: market.competition ?? null,
+        status: market.status ?? null,
+        lifecycleStatus: market.lifecycleStatus,
+        isResolved: Boolean(market.isResolved),
+        closeTime: market.closeTime ?? null,
+        userSide: side,
+        entryPriceCents: getDefaultEntryPrice(side, market),
+        notes: "",
+        addedAt: now
+      }
+    ]);
+  }
+
+  function updateComboBuilderLeg(
+    legId: string,
+    updater: (leg: KalshiComboTracker["legs"][number]) => KalshiComboTracker["legs"][number]
+  ) {
+    setComboBuilderLegs((current) =>
+      current.map((leg) => (leg.id === legId ? updater(leg) : leg))
+    );
+  }
+
+  function removeComboBuilderLeg(legId: string) {
+    setComboBuilderLegs((current) => current.filter((leg) => leg.id !== legId));
   }
 
   async function updateComboTracker(
@@ -346,43 +517,6 @@ export function PopupApp() {
     await updateComboTracker(comboId, (combo) => ({
       ...combo,
       archived: true
-    }));
-  }
-
-  async function addComboLeg(comboId: string) {
-    const ticker = comboLegSelections[comboId];
-    const watchItem = watchlist.find((item) => item.ticker === ticker);
-
-    if (!watchItem) {
-      return;
-    }
-
-    await updateComboTracker(comboId, (combo) => {
-      if (combo.legs.some((leg) => leg.ticker === ticker)) {
-        return combo;
-      }
-
-      return {
-        ...combo,
-        legs: [
-          ...combo.legs,
-          {
-            id: `leg-${ticker}-${Date.now()}`,
-            ticker,
-            title: watchItem.title,
-            displayTitle: watchItem.displayTitle ?? null,
-            userSide: watchItem.userSide,
-            entryPriceCents: watchItem.entryPriceCents,
-            amountRisked: watchItem.amountRisked,
-            notes: watchItem.notes
-          }
-        ]
-      };
-    });
-
-    setComboLegSelections((current) => ({
-      ...current,
-      [comboId]: ""
     }));
   }
 
@@ -416,7 +550,7 @@ export function PopupApp() {
         </div>
       </header>
 
-      <section className="panel">
+      <section className="panel settings-panel">
         <div className="panel-header">
           <h2>Overlay Mode</h2>
           <span className={`saving-pill ${isSaving ? "active" : ""}`}>{isSaving ? "Saving" : "Ready"}</span>
@@ -446,7 +580,7 @@ export function PopupApp() {
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel search-panel">
         <div className="panel-header">
           <h2>Search Kalshi Markets</h2>
           <span className="small-copy">{isLoadingResults ? "Searching..." : `${searchResults.length} result${searchResults.length === 1 ? "" : "s"}`}</span>
@@ -537,6 +671,12 @@ export function PopupApp() {
         </div>
 
         {searchError ? <div className="error-copy">{searchError}</div> : null}
+        {formatSearchExpansion(searchQueryInfo) ? (
+          <div className="search-explain">{formatSearchExpansion(searchQueryInfo)}</div>
+        ) : null}
+        {formatDetectedTeams(searchQueryInfo) ? (
+          <div className="search-explain">{formatDetectedTeams(searchQueryInfo)}</div>
+        ) : null}
 
         <div className="positions-list">
           {resultsWithState.length === 0 ? (
@@ -589,40 +729,206 @@ export function PopupApp() {
         {searchCursor ? <div className="small-copy">More results are available through Kalshi pagination; this popup is currently showing the first page.</div> : null}
       </section>
 
-      <section className="panel">
+      <section className="panel combo-panel">
         <div className="panel-header">
-          <h2>Combo Trackers</h2>
+          <h2>Combo Builder</h2>
           <span className="small-copy">{comboSummary}</span>
         </div>
 
-        <div className="combo-create-row">
-          <input
-            value={newComboName}
-            placeholder="Combo name, e.g. NBA + MLB Night"
-            onChange={(event) => setNewComboName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                void createComboTracker();
-              }
-            }}
-          />
-          <button type="button" className="primary-button" onClick={() => void createComboTracker()}>
-            Create
-          </button>
+        <div className="combo-builder">
+          <div className="combo-builder-head">
+            <label>
+              Combo name
+              <input
+                value={newComboName}
+                placeholder="Spurs + Castle assists"
+                onChange={(event) => setNewComboName(event.target.value)}
+              />
+            </label>
+            <label>
+              Amount risked ($)
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={newComboAmountRisked}
+                onChange={(event) =>
+                  setNewComboAmountRisked(roundCurrency(Math.max(0, Number(event.target.value) || 0)))
+                }
+              />
+            </label>
+          </div>
+
+          <label>
+            Search market for combo leg
+            <div className="combo-search-row">
+              <input
+                value={comboLegSearchQuery}
+                placeholder="spurs win, stephon castle assists"
+                onChange={(event) => setComboLegSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void runComboLegSearch();
+                  }
+                }}
+              />
+              <button type="button" className="primary-button" onClick={() => void runComboLegSearch()}>
+                Search
+              </button>
+            </div>
+          </label>
+
+          {comboLegSearchError ? <div className="error-copy">{comboLegSearchError}</div> : null}
+          <div className="combo-search-results">
+            {isLoadingComboLegs ? <div className="position-note">Searching Kalshi markets...</div> : null}
+            {!isLoadingComboLegs && comboLegSearchGroups.length === 0 ? (
+              <div className="position-note">
+                {hasSearchedComboLegs
+                  ? "No relevant markets found."
+                  : "Search for a market to add a combo leg."}
+              </div>
+            ) : (
+              comboLegSearchGroups.map((group) => (
+                <div className="combo-result-group" key={group.query}>
+                  <div className="section-mini-title">Results for "{group.query}"</div>
+                  {formatSearchExpansion(group.queryInfo) ? (
+                    <div className="search-explain">{formatSearchExpansion(group.queryInfo)}</div>
+                  ) : null}
+                  {formatDetectedTeams(group.queryInfo) ? (
+                    <div className="search-explain">{formatDetectedTeams(group.queryInfo)}</div>
+                  ) : null}
+                  {group.markets.length === 0 ? (
+                    <div className="position-note">No relevant markets found.</div>
+                  ) : (
+                    group.markets.map((market) => (
+                      <article className="combo-result-card" key={`${group.query}-${market.ticker}`}>
+                        <div className="position-topline">
+                          <span className="market" title={getDisplayTitle(market)}>{getDisplayTitle(market)}</span>
+                          <span className="small-copy">{[market.sport, market.competition].filter(Boolean).join(" · ") || getLifecycleLabel(market)}</span>
+                        </div>
+                        <div className="position-meta">
+                          <span>{market.eventTitle ?? market.eventTicker ?? market.ticker}</span>
+                          <span>{getLifecycleLabel(market)}</span>
+                        </div>
+                        <div className="position-pricing">
+                          <span>YES {formatPrice(market.yesBidCents)} / {formatPrice(market.yesAskCents)}</span>
+                          <span>NO {formatPrice(market.noBidCents)} / {formatPrice(market.noAskCents)}</span>
+                        </div>
+                        <div className="combo-result-actions">
+                          <button
+                            type="button"
+                            className="inline-button"
+                            onClick={() => addMarketToComboBuilder(market, "YES")}
+                          >
+                            Add YES
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-button"
+                            onClick={() => addMarketToComboBuilder(market, "NO")}
+                          >
+                            Add NO
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="combo-builder-footer">
+            <div>
+              <div className="section-mini-title">Current legs</div>
+              <div className="small-copy">{comboBuilderLegs.length} leg{comboBuilderLegs.length === 1 ? "" : "s"} ready to save</div>
+              {comboSaveMessage ? <div className="error-copy">{comboSaveMessage}</div> : null}
+            </div>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void createComboTracker()}
+            >
+              Save combo
+            </button>
+          </div>
+
+          {comboBuilderLegs.length === 0 ? (
+            <div className="position-note">Add YES or NO legs from search results above.</div>
+          ) : (
+            comboBuilderLegs.map((leg) => (
+              <div className="combo-leg-editor" key={leg.id}>
+                <div className="position-topline">
+                  <span className="market">{leg.displayTitle || leg.title}</span>
+                  <button
+                    type="button"
+                    className="inline-button muted-button"
+                    onClick={() => removeComboBuilderLeg(leg.id)}
+                  >
+                    Remove leg
+                  </button>
+                </div>
+                <div className="position-meta">
+                  <span>{leg.ticker}</span>
+                  <span>{[leg.sport, leg.competition].filter(Boolean).join(" · ")}</span>
+                </div>
+                <div className="field-grid compact-grid">
+                  <label>
+                    Side
+                    <select
+                      value={leg.userSide}
+                      onChange={(event) =>
+                        updateComboBuilderLeg(leg.id, (currentLeg) => ({
+                          ...currentLeg,
+                          userSide: event.target.value as KalshiMarketSide
+                        }))
+                      }
+                    >
+                      <option value="YES">YES</option>
+                      <option value="NO">NO</option>
+                    </select>
+                  </label>
+                  <label>
+                    Entry price (c)
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={leg.entryPriceCents}
+                      onChange={(event) =>
+                        updateComboBuilderLeg(leg.id, (currentLeg) => ({
+                          ...currentLeg,
+                          entryPriceCents: Math.max(0, Math.min(100, Number(event.target.value) || 0))
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Notes
+                    <input
+                      value={leg.notes}
+                      placeholder="Optional note"
+                      onChange={(event) =>
+                        updateComboBuilderLeg(leg.id, (currentLeg) => ({
+                          ...currentLeg,
+                          notes: event.target.value
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         <div className="positions-list">
-          {activeComboTrackers.length === 0 ? (
+          {savedComboTrackers.length === 0 ? (
             <article className="position-card">
-              <div className="position-note">Create a combo to track several watched Kalshi markets together.</div>
+              <div className="position-note">Saved combos will appear here and in the overlay.</div>
             </article>
           ) : (
-            activeComboTrackers.map((combo) => {
-              const addableWatchlist = visibleWatchlist.filter(
-                (item) => !combo.legs.some((leg) => leg.ticker === item.ticker)
-              );
-
-              return (
+            savedComboTrackers.map((combo) => (
                 <article className="position-card" key={combo.id}>
                   <div className="position-topline">
                     <span className="market">{combo.name}</span>
@@ -636,42 +942,30 @@ export function PopupApp() {
                   </div>
                   <div className="position-meta">
                     <span>{combo.legs.length} leg{combo.legs.length === 1 ? "" : "s"}</span>
-                    <span>Estimated; markets may be correlated.</span>
+                    <span>Risk {formatDollars(combo.amountRisked)}</span>
                   </div>
-                  <div className="combo-add-row">
-                    <select
-                      value={comboLegSelections[combo.id] ?? ""}
-                      disabled={addableWatchlist.length === 0}
-                      onChange={(event) =>
-                        setComboLegSelections((current) => ({
-                          ...current,
-                          [combo.id]: event.target.value
-                        }))
-                      }
-                    >
-                      <option value="">Add watched market</option>
-                      {addableWatchlist.map((item) => (
-                        <option value={item.ticker} key={item.ticker}>
-                          {getDisplayTitle(item)}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="inline-button"
-                      disabled={!comboLegSelections[combo.id]}
-                      onClick={() => void addComboLeg(combo.id)}
-                    >
-                      Add leg
-                    </button>
+                  <div className="field-grid single-column">
+                    <label>
+                      Combo amount risked ($)
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={combo.amountRisked}
+                        onChange={(event) =>
+                          void updateComboTracker(combo.id, (currentCombo) => ({
+                            ...currentCombo,
+                            amountRisked: roundCurrency(Math.max(0, Number(event.target.value) || 0))
+                          }))
+                        }
+                      />
+                    </label>
                   </div>
-                  {combo.legs.length === 0 ? (
-                    <div className="position-note">Add watched markets as legs to start tracking this combo.</div>
-                  ) : (
-                    combo.legs.map((leg) => (
-                      <div className="combo-leg-editor" key={leg.id}>
-                        <div className="position-topline">
-                          <span className="market">{leg.displayTitle || leg.title}</span>
+                  {combo.legs.map((leg) => (
+                    <div className="combo-leg-editor" key={leg.id}>
+                      <div className="position-topline">
+                        <span className="market">{leg.displayTitle || leg.title}</span>
+                        {isComboLegEditable(leg) ? (
                           <button
                             type="button"
                             className="inline-button muted-button"
@@ -679,7 +973,11 @@ export function PopupApp() {
                           >
                             Remove leg
                           </button>
-                        </div>
+                        ) : (
+                          <span className="small-copy">Locked - market started/closed</span>
+                        )}
+                      </div>
+                      {isComboLegEditable(leg) ? (
                         <div className="field-grid compact-grid">
                           <label>
                             Side
@@ -717,10 +1015,7 @@ export function PopupApp() {
                                     currentLeg.id === leg.id
                                       ? {
                                           ...currentLeg,
-                                          entryPriceCents: Math.max(
-                                            0,
-                                            Math.min(100, Number(event.target.value) || 0)
-                                          )
+                                          entryPriceCents: Math.max(0, Math.min(100, Number(event.target.value) || 0))
                                         }
                                       : currentLeg
                                   )
@@ -729,12 +1024,10 @@ export function PopupApp() {
                             />
                           </label>
                           <label className="field-span-2">
-                            Amount risked ($)
+                            Notes
                             <input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={leg.amountRisked}
+                              value={leg.notes}
+                              placeholder="Optional note"
                               onChange={(event) =>
                                 void updateComboTracker(combo.id, (currentCombo) => ({
                                   ...currentCombo,
@@ -742,9 +1035,7 @@ export function PopupApp() {
                                     currentLeg.id === leg.id
                                       ? {
                                           ...currentLeg,
-                                          amountRisked: roundCurrency(
-                                            Math.max(0, Number(event.target.value) || 0)
-                                          )
+                                          notes: event.target.value
                                         }
                                       : currentLeg
                                   )
@@ -753,17 +1044,21 @@ export function PopupApp() {
                             />
                           </label>
                         </div>
-                      </div>
-                    ))
-                  )}
+                      ) : (
+                        <div className="position-meta">
+                          <span>{leg.userSide} · entry {formatPrice(leg.entryPriceCents)}</span>
+                          <span>{leg.status ?? leg.lifecycleStatus ?? "locked"}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </article>
-              );
-            })
+              ))
           )}
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel watchlist-panel">
         <div className="panel-header">
           <h2>Watchlist</h2>
           <span className="small-copy">{watchlistSummary}</span>

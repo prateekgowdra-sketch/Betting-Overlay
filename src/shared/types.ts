@@ -144,17 +144,27 @@ export interface KalshiWatchlistItem {
 export interface KalshiComboLeg {
   id: string;
   ticker: string;
+  eventTicker?: string | null;
   title: string;
   displayTitle?: string | null;
+  subtitle?: string | null;
+  sport?: string | null;
+  competition?: string | null;
+  status?: string | null;
+  lifecycleStatus?: KalshiMarketLifecycleStatus;
+  isResolved?: boolean;
+  closeTime?: string | null;
   userSide: KalshiMarketSide;
   entryPriceCents: number;
-  amountRisked: number;
+  amountRisked?: number;
   notes: string;
+  addedAt?: string;
 }
 
 export interface KalshiComboTracker {
   id: string;
   name: string;
+  amountRisked: number;
   legs: KalshiComboLeg[];
   archived?: boolean;
   createdAt: string;

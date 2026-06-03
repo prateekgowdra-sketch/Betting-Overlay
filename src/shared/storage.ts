@@ -274,34 +274,58 @@ export async function getKalshiComboTrackers(): Promise<KalshiComboTracker[]> {
   if (Array.isArray(existing)) {
     return existing
       .filter((combo) => combo && typeof combo.id === "string" && typeof combo.name === "string")
-      .map((combo) => ({
-        id: combo.id,
-        name: combo.name.trim() || "Untitled combo",
-        legs: Array.isArray(combo.legs)
-          ? combo.legs
-              .filter((leg) => leg && typeof leg.ticker === "string" && typeof leg.title === "string")
-              .map((leg) => ({
+      .map((combo) => {
+        const oldLegRisk = Array.isArray(combo.legs)
+          ? combo.legs.reduce(
+              (sum, leg) =>
+                sum +
+                (typeof leg.amountRisked === "number" && Number.isFinite(leg.amountRisked)
+                  ? Math.max(0, leg.amountRisked)
+                  : 0),
+              0
+            )
+          : 0;
+
+        return {
+          id: combo.id,
+          name: combo.name.trim() || "Untitled combo",
+          amountRisked:
+            typeof combo.amountRisked === "number" && Number.isFinite(combo.amountRisked)
+              ? Math.max(0, combo.amountRisked)
+              : oldLegRisk,
+          legs: Array.isArray(combo.legs)
+            ? combo.legs
+                .filter((leg) => leg && typeof leg.ticker === "string" && typeof leg.title === "string")
+                .map((leg) => ({
                 id: typeof leg.id === "string" && leg.id ? leg.id : `leg-${leg.ticker}-${Date.now()}`,
                 ticker: leg.ticker,
+                eventTicker:
+                  typeof leg.eventTicker === "string" && leg.eventTicker ? leg.eventTicker : null,
                 title: leg.title,
                 displayTitle:
                   typeof leg.displayTitle === "string" && leg.displayTitle ? leg.displayTitle : null,
+                subtitle: typeof leg.subtitle === "string" && leg.subtitle ? leg.subtitle : null,
+                sport: typeof leg.sport === "string" && leg.sport ? leg.sport : null,
+                competition:
+                  typeof leg.competition === "string" && leg.competition ? leg.competition : null,
+                status: typeof leg.status === "string" && leg.status ? leg.status : null,
+                lifecycleStatus: leg.lifecycleStatus,
+                isResolved: Boolean(leg.isResolved),
+                closeTime: typeof leg.closeTime === "string" && leg.closeTime ? leg.closeTime : null,
                 userSide: leg.userSide === "NO" ? "NO" : "YES",
                 entryPriceCents:
                   typeof leg.entryPriceCents === "number" && Number.isFinite(leg.entryPriceCents)
                     ? Math.max(0, Math.min(100, leg.entryPriceCents))
                     : 50,
-                amountRisked:
-                  typeof leg.amountRisked === "number" && Number.isFinite(leg.amountRisked)
-                    ? Math.max(0, leg.amountRisked)
-                    : 0,
-                notes: typeof leg.notes === "string" ? leg.notes : ""
+                notes: typeof leg.notes === "string" ? leg.notes : "",
+                addedAt: typeof leg.addedAt === "string" ? leg.addedAt : new Date().toISOString()
               }))
-          : [],
-        archived: Boolean(combo.archived),
-        createdAt: typeof combo.createdAt === "string" ? combo.createdAt : new Date().toISOString(),
-        updatedAt: typeof combo.updatedAt === "string" ? combo.updatedAt : new Date().toISOString()
-      }));
+            : [],
+          archived: Boolean(combo.archived),
+          createdAt: typeof combo.createdAt === "string" ? combo.createdAt : new Date().toISOString(),
+          updatedAt: typeof combo.updatedAt === "string" ? combo.updatedAt : new Date().toISOString()
+        };
+      });
   }
 
   await safeStorageSet({ [KALSHI_COMBO_TRACKERS_KEY]: DEFAULT_KALSHI_COMBO_TRACKERS });
