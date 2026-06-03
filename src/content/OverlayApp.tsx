@@ -15,8 +15,12 @@ import {
   saveOverlayUiState
 } from "../shared/storage";
 import {
+  KalshiBetMovementStatus,
+  KalshiBetPerformance,
+  KalshiLiveContext,
   KalshiMarketSide,
   KalshiMarketSnapshot,
+  KalshiOverlayState,
   KalshiWatchlistItem,
   OverlayStatus
 } from "../shared/types";
@@ -42,6 +46,30 @@ function formatUpdatedTime(timestamp?: string | null): string {
   });
 }
 
+function formatUpdatedLabel(timestamp?: string | null): string {
+  if (!timestamp) {
+    return "--";
+  }
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  const ageSeconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+
+  if (ageSeconds < 60) {
+    return `${ageSeconds}s ago`;
+  }
+
+  if (ageSeconds < 3600) {
+    return `${Math.round(ageSeconds / 60)}m ago`;
+  }
+
+  return formatUpdatedTime(timestamp);
+}
+
 function formatPrice(value: number | null | undefined): string {
   return typeof value === "number" ? `${value}c` : "--";
 }
@@ -54,8 +82,25 @@ function formatVolume(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+function formatDollars(value: number | null | undefined): string {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 function truncateTitle(title: string): string {
   return title.length > 40 ? `${title.slice(0, 37)}...` : title;
+}
+
+function getDisplayTitle(item: { displayTitle?: string | null; title: string }): string {
+  return item.displayTitle || item.title;
 }
 
 function getCurrentSidePrice(
@@ -85,17 +130,56 @@ function getCurrentSidePrice(
   return null;
 }
 
-function getMovementCents(
-  item: KalshiWatchlistItem,
-  market?: KalshiMarketSnapshot
-): number | null {
-  const current = getCurrentSidePrice(item.userSide, market);
-
-  if (typeof current !== "number") {
-    return null;
+function getEffectiveContracts(item: KalshiWatchlistItem): number {
+  if (item.contracts > 0) {
+    return item.contracts;
   }
 
-  return current - item.entryPriceCents;
+  if (item.amountRisked > 0 && item.entryPriceCents > 0) {
+    return item.amountRisked / (item.entryPriceCents / 100);
+  }
+
+  return 0;
+}
+
+function getBetPerformance(
+  item: KalshiWatchlistItem,
+  market?: KalshiMarketSnapshot
+): KalshiBetPerformance {
+  const currentSidePriceCents = getCurrentSidePrice(item.userSide, market);
+  const effectiveContracts = getEffectiveContracts(item);
+  const liveQuotePayout =
+    item.amountRisked > 0 && typeof currentSidePriceCents === "number" && currentSidePriceCents > 0
+      ? item.amountRisked / (currentSidePriceCents / 100)
+      : null;
+  const movementCents =
+    typeof currentSidePriceCents === "number"
+      ? currentSidePriceCents - item.entryPriceCents
+      : null;
+  const movementStatus: KalshiBetMovementStatus =
+    typeof movementCents !== "number"
+      ? "unavailable"
+      : movementCents > 0
+        ? "favorable"
+        : movementCents < 0
+          ? "unfavorable"
+          : "unchanged";
+
+  return {
+    currentSidePriceCents,
+    movementCents,
+    movementStatus,
+    estimatedCurrentValue:
+      typeof currentSidePriceCents === "number"
+        ? (effectiveContracts * currentSidePriceCents) / 100
+        : null,
+    estimatedProfitLoss:
+      typeof movementCents === "number" ? (effectiveContracts * movementCents) / 100 : null,
+    estimatedPayout: liveQuotePayout,
+    estimatedMaxProfit:
+      typeof liveQuotePayout === "number" ? liveQuotePayout - item.amountRisked : null,
+    amountRisked: item.amountRisked
+  };
 }
 
 function getMovementTone(
@@ -128,13 +212,55 @@ function formatMovement(movement: number | null): string {
   return `${movement > 0 ? "+" : ""}${movement}c`;
 }
 
+function formatMovementStatus(status: KalshiBetMovementStatus): string {
+  switch (status) {
+    case "favorable":
+      return "Favorable";
+    case "unfavorable":
+      return "Unfavorable";
+    case "unchanged":
+      return "Unchanged";
+    case "unavailable":
+    default:
+      return "Unavailable";
+  }
+}
+
 function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): number {
   const current = getCurrentSidePrice(item.userSide, market);
   return typeof current === "number" ? Math.max(0, Math.min(100, current)) : 0;
 }
 
 function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): string {
-  return `${truncateTitle(item.title)} | YES ${formatPrice(market?.yesAskCents ?? market?.yesBidCents)} / NO ${formatPrice(market?.noAskCents ?? market?.noBidCents)} | You ${item.userSide} | ${formatMovement(getMovementCents(item, market))}`;
+  const performance = getBetPerformance(item, market);
+  const liveSnippet = formatLiveContextSnippet(market?.liveContext);
+
+  return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${formatPrice(item.entryPriceCents)} -> ${formatPrice(performance.currentSidePriceCents)} | ${formatMovement(performance.movementCents)} | ${getEffectiveContracts(item).toFixed(2)}x | Live payout ${formatDollars(performance.estimatedPayout)} | ${formatMovementStatus(performance.movementStatus)}${liveSnippet ? ` | ${liveSnippet}` : ""}`;
+}
+
+function formatLiveContextSnippet(liveContext?: KalshiLiveContext): string {
+  if (!liveContext?.available) {
+    return "";
+  }
+
+  const teams =
+    liveContext.awayTeam || liveContext.homeTeam
+      ? `${liveContext.awayTeam ?? "Away"} ${typeof liveContext.awayScore === "number" ? liveContext.awayScore : ""} @ ${liveContext.homeTeam ?? "Home"} ${typeof liveContext.homeScore === "number" ? liveContext.homeScore : ""}`.replace(/\s+/g, " ").trim()
+      : "";
+  const gameState = [liveContext.period, liveContext.clock, liveContext.status]
+    .filter(Boolean)
+    .join(" ");
+
+  return [teams, gameState].filter(Boolean).join(" | ");
+}
+
+function formatLiveContextCardText(liveContext?: KalshiLiveContext): string {
+  if (!liveContext?.available) {
+    return liveContext?.unavailableReason ?? "Live game data unavailable for this market";
+  }
+
+  const score = formatLiveContextSnippet(liveContext);
+  return score || "Live context available from Kalshi";
 }
 
 function statusTone(status?: string): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
@@ -153,12 +279,25 @@ function statusTone(status?: string): "is-good" | "is-live" | "is-bad" | "is-una
   }
 }
 
+function getDataQualityLabel(overlayState: KalshiOverlayState | null): string {
+  if (!overlayState) {
+    return "Market data loading";
+  }
+
+  const marketStatus = overlayState.dataQuality.marketDataStatus;
+  const positionStatus =
+    overlayState.dataQuality.positionsStatus ?? overlayState.dataQuality.positionStatus;
+
+  return `Market data ${marketStatus} | Positions ${positionStatus}`;
+}
+
 export function OverlayApp() {
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
   const [marketsByTicker, setMarketsByTicker] = useState<Record<string, KalshiMarketSnapshot>>({});
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
+  const [overlayState, setOverlayState] = useState<KalshiOverlayState | null>(null);
   const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({
     state: "loading",
     message: "Connecting to Kalshi market tracker..."
@@ -263,25 +402,25 @@ export function OverlayApp() {
       );
 
       try {
-        const [marketResponse, nextBackendStatus] = await Promise.all([
-          backendApi.getKalshiMarkets({
-            tickers: watchlist.map((item) => item.ticker)
-          }),
+        const [nextOverlayState, nextBackendStatus] = await Promise.all([
+          backendApi.getOverlayState(watchlist.map((item) => item.ticker)),
           backendApi.getBackendStatus().catch(() => null)
         ]);
         const nextMarketsByTicker = Object.fromEntries(
-          marketResponse.markets.map((market) => [market.ticker, market])
+          nextOverlayState.watchedMarkets.map((market) => [market.ticker, market])
         );
-        const updatedTimes = marketResponse.markets
-          .map((market) => market.updatedAt)
+        const updatedTimes = nextOverlayState.watchedMarkets
+          .map((market) => market.dataQuality?.lastUpdated ?? market.updatedAt)
           .filter((value): value is string => Boolean(value));
 
         setMarketsByTicker(nextMarketsByTicker);
         setBackendStatus(nextBackendStatus);
+        setOverlayState(nextOverlayState);
         setOverlayStatus({
           state: "ready",
+          message: nextOverlayState.dataQuality.message,
           lastUpdated:
-            updatedTimes.sort().at(-1) ?? new Date().toISOString()
+            updatedTimes.sort().at(-1) ?? nextOverlayState.updatedAt
         });
       } catch (error) {
         const message =
@@ -289,9 +428,22 @@ export function OverlayApp() {
             ? error.message
             : "Unable to reach the backend. Make sure localhost:3001 is running.";
 
+        setOverlayState((current) =>
+          current
+            ? {
+                ...current,
+                dataQuality: {
+                  ...current.dataQuality,
+                  marketDataStatus: "stale",
+                  message: "Market data stale - showing last known price"
+                },
+                updatedAt: new Date().toISOString()
+              }
+            : current
+        );
         setOverlayStatus({
           state: "error",
-          message,
+          message: marketsByTicker ? `Market data stale - ${message}` : message,
           lastUpdated: new Date().toISOString()
         });
       } finally {
@@ -323,10 +475,11 @@ export function OverlayApp() {
     [watchlist, marketsByTicker]
   );
   const watchCount = watchedMarkets.length;
-  const totalPositionCount = watchedMarkets.filter(
-    ({ market }) => market?.position && market.position.contracts > 0
-  ).length;
-  const lastUpdated = formatUpdatedTime(overlayStatus.lastUpdated);
+  const totalPositionCount =
+    overlayState?.positions.filter((position) => position.contracts > 0).length ??
+    watchedMarkets.filter(({ market }) => market?.position && market.position.contracts > 0).length;
+  const lastUpdated = formatUpdatedLabel(overlayStatus.lastUpdated);
+  const dataQualityLabel = getDataQualityLabel(overlayState);
 
   if (!uiState || !settings) {
     return null;
@@ -386,8 +539,8 @@ export function OverlayApp() {
               <div className="klo-info-chip">Add a watched market in the popup to begin tracking.</div>
             ) : (
               watchedMarkets.map(({ item, market }) => {
-                const movement = getMovementCents(item, market);
-                const tone = getMovementTone(movement);
+                const performance = getBetPerformance(item, market);
+                const tone = getMovementTone(performance.movementCents);
 
                 return (
                   <div className={`klo-bet-chip ${tone}`} key={item.ticker} title={item.ticker}>
@@ -421,6 +574,7 @@ export function OverlayApp() {
             {overlayStatus.message ? (
               <span className="klo-info-chip klo-status-chip">{overlayStatus.message}</span>
             ) : null}
+            <span className="klo-info-chip klo-status-chip">{dataQualityLabel}</span>
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
               type="button"
@@ -496,6 +650,10 @@ export function OverlayApp() {
               <strong>{totalPositionCount}</strong>
             </div>
             <div className="klo-scoreboard-row">
+              <span>Data quality</span>
+              <strong>{overlayState?.dataQuality.marketDataStatus ?? "loading"}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
               <span>Last sync</span>
               <strong>{lastUpdated}</strong>
             </div>
@@ -518,14 +676,14 @@ export function OverlayApp() {
               </article>
             ) : (
               watchedMarkets.map(({ item, market }) => {
-                const movement = getMovementCents(item, market);
-                const tone = getMovementTone(movement);
+                const performance = getBetPerformance(item, market);
+                const tone = getMovementTone(performance.movementCents);
                 const trackedPosition = market?.position ?? null;
 
                 return (
                   <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
                     <div className="klo-card-meta klo-card-meta-top">
-                      <div className="klo-card-title">{item.title}</div>
+                      <div className="klo-card-title">{getDisplayTitle(item)}</div>
                       <span className={`klo-status-badge ${statusTone(market?.status)}`}>
                         {market?.status ?? "unavailable"}
                       </span>
@@ -555,8 +713,40 @@ export function OverlayApp() {
                       <span>{formatPrice(item.entryPriceCents)}</span>
                     </div>
                     <div className="klo-card-meta">
+                      <span>Current side price</span>
+                      <span>{formatPrice(performance.currentSidePriceCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Contracts</span>
+                      <span>{item.contracts}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Amount risked</span>
+                      <span>{formatDollars(performance.amountRisked)}</span>
+                    </div>
+                    <div className="klo-card-meta">
                       <span>Movement</span>
-                      <span>{formatMovement(movement)}</span>
+                      <span>{formatMovement(performance.movementCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Approx value</span>
+                      <span>{formatDollars(performance.estimatedCurrentValue)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Approx P/L</span>
+                      <span>{formatDollars(performance.estimatedProfitLoss)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Live quote payout</span>
+                      <span>{formatDollars(performance.estimatedPayout)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Live quote profit</span>
+                      <span>{formatDollars(performance.estimatedMaxProfit)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Status</span>
+                      <span>{formatMovementStatus(performance.movementStatus)}</span>
                     </div>
                     {trackedPosition ? (
                       <div className="klo-card-meta">
@@ -572,7 +762,19 @@ export function OverlayApp() {
                     </div>
                     <div className="klo-card-meta">
                       <span>Updated</span>
-                      <span>{formatUpdatedTime(market?.updatedAt)}</span>
+                      <span>{formatUpdatedLabel(market?.dataQuality?.lastUpdated ?? market?.updatedAt)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Market data</span>
+                      <span>{market?.dataQuality?.marketDataStatus ?? "unavailable"}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Position match</span>
+                      <span>{market?.dataQuality?.positionStatus ?? "unavailable"}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Live context</span>
+                      <span>{formatLiveContextCardText(market?.liveContext)}</span>
                     </div>
                     {item.notes ? (
                       <div className="klo-card-meta">
@@ -580,10 +782,6 @@ export function OverlayApp() {
                         <span>{item.notes}</span>
                       </div>
                     ) : null}
-                    <div className="klo-card-meta">
-                      <span>Game stats</span>
-                      <span>Unavailable from this tracker unless Kalshi supports live data for the market</span>
-                    </div>
                     <div className="klo-progress-track">
                       <div className="klo-progress-fill" style={{ width: `${getProgressValue(item, market)}%` }} />
                     </div>

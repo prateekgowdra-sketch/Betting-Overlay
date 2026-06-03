@@ -4,7 +4,12 @@ import {
   BackendKalshiPositionResponse,
   BackendPlayersResponse
 } from "../shared/overlayState";
-import { KalshiMarketOrderbook, KalshiMarketSnapshot } from "../shared/types";
+import {
+  KalshiMarketOrderbook,
+  KalshiMarketSnapshot,
+  KalshiOverlayState,
+  KalshiSportFilterOption
+} from "../shared/types";
 
 export interface SupportedGame {
   id: string;
@@ -41,10 +46,33 @@ export interface KalshiMarketsResponse {
   cursor: string | null;
 }
 
+export interface KalshiSportsFiltersResponse {
+  source: "kalshi";
+  sports: KalshiSportFilterOption[];
+}
+
 export interface KalshiOrderbookResponse {
   mode: "mock" | "real";
   environment: "demo" | "production";
   orderbook: KalshiMarketOrderbook;
+}
+
+export interface KalshiAuthHealthResponse {
+  mode: "mock" | "real";
+  environment: "demo" | "production";
+  publicEnvironment: "demo" | "production";
+  configured: boolean;
+  hasApiKeyId: boolean;
+  hasPrivateKeyPath: boolean;
+  readOnly: boolean;
+  message: string;
+}
+
+export interface KalshiAccountPositionsResponse {
+  mode: "mock" | "real";
+  environment: "demo" | "production";
+  updatedAt: string;
+  positions: NonNullable<KalshiMarketSnapshot["position"]>[];
 }
 
 const API_BASE_URL = "http://localhost:3001/api";
@@ -144,6 +172,42 @@ class BackendApi {
     return (await response.json()) as BackendStatusResponse;
   }
 
+  async getOverlayState(tickers: string[] = []): Promise<KalshiOverlayState> {
+    const url = new URL(`${API_BASE_URL}/overlay/state`);
+
+    if (tickers.length > 0) {
+      url.searchParams.set("tickers", tickers.join(","));
+    }
+
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch overlay state");
+    }
+
+    return (await response.json()) as KalshiOverlayState;
+  }
+
+  async getKalshiAuthHealth(): Promise<KalshiAuthHealthResponse> {
+    const response = await fetch(`${API_BASE_URL}/kalshi/auth/health`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch Kalshi auth health");
+    }
+
+    return (await response.json()) as KalshiAuthHealthResponse;
+  }
+
+  async getKalshiAccountPositions(): Promise<KalshiAccountPositionsResponse> {
+    const response = await fetch(`${API_BASE_URL}/kalshi/positions`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch Kalshi account positions");
+    }
+
+    return (await response.json()) as KalshiAccountPositionsResponse;
+  }
+
   async getKalshiPositions(gameId: string): Promise<BackendKalshiPositionResponse> {
     const response = await fetch(this.buildUrl(`/kalshi/positions/${gameId}`));
 
@@ -207,6 +271,73 @@ class BackendApi {
 
     if (!response.ok) {
       throw new Error("Failed to fetch Kalshi markets");
+    }
+
+    return (await response.json()) as KalshiMarketsResponse;
+  }
+
+  async getKalshiSportsFilters(): Promise<KalshiSportsFiltersResponse> {
+    const response = await fetch(`${API_BASE_URL}/kalshi/sports/filters`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch Kalshi sports filters");
+    }
+
+    return (await response.json()) as KalshiSportsFiltersResponse;
+  }
+
+  async getKalshiSportsMarkets(params: {
+    sport?: string;
+    competition?: string;
+    scope?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+    cursor?: string;
+  } = {}): Promise<KalshiMarketsResponse> {
+    const url = new URL(`${API_BASE_URL}/kalshi/sports/markets`);
+
+    if (params.sport) {
+      url.searchParams.set("sport", params.sport);
+    }
+
+    if (params.competition) {
+      url.searchParams.set("competition", params.competition);
+    }
+
+    if (params.scope) {
+      url.searchParams.set("scope", params.scope);
+    }
+
+    if (params.status) {
+      url.searchParams.set("status", params.status);
+    }
+
+    if (params.search) {
+      url.searchParams.set("search", params.search);
+    }
+
+    if (typeof params.limit === "number") {
+      url.searchParams.set("limit", String(params.limit));
+    }
+
+    if (params.cursor) {
+      url.searchParams.set("cursor", params.cursor);
+    }
+
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      let message = "Failed to fetch Kalshi sports markets";
+
+      try {
+        const payload = (await response.json()) as { details?: string; error?: string };
+        message = payload.details || payload.error || message;
+      } catch {
+        message = response.status === 429 ? "Kalshi rate limited the market search." : message;
+      }
+
+      throw new Error(message);
     }
 
     return (await response.json()) as KalshiMarketsResponse;

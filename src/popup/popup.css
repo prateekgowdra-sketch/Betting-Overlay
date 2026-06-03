@@ -208,8 +208,17 @@ button {
   align-items: stretch;
 }
 
+.filter-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 10px;
+}
+
 .search-row input,
-.search-row select {
+.search-row select,
+.filter-row select {
   width: 100%;
   border: 1px solid rgba(138, 173, 210, 0.22);
   border-radius: 10px;
@@ -218,6 +227,11 @@ button {
   color: #eef6ff;
   min-height: 40px;
   min-width: 0;
+}
+
+.filter-row select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .compact-grid {
@@ -395,6 +409,10 @@ button {
   }
 
   .search-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .filter-row {
     grid-template-columns: minmax(0, 1fr);
   }
 

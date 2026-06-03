@@ -227,6 +227,14 @@ class KalshiClient {
     return this.publicGet(`/markets/${encodeURIComponent(ticker)}`);
   }
 
+  async getPublicEvent(eventTicker) {
+    return this.publicGet(`/events/${encodeURIComponent(eventTicker)}`);
+  }
+
+  async getPublicEventLiveData(eventTicker) {
+    return this.publicGet(`/events/${encodeURIComponent(eventTicker)}/live_data`);
+  }
+
   async getPublicMarkets(query = {}) {
     const url = new URL(`${this.getPublicBaseUrl()}/markets`);
 

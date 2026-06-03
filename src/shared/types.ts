@@ -108,24 +108,85 @@ export interface OverlayData {
 export type KalshiMarketSide = "YES" | "NO";
 
 export interface KalshiWatchlistItem {
+  id: string;
   ticker: string;
+  eventTicker?: string | null;
   title: string;
+  displayTitle?: string | null;
+  sport?: string | null;
+  competition?: string | null;
+  scope?: string | null;
   userSide: KalshiMarketSide;
   entryPriceCents: number;
+  contracts: number;
+  amountRisked: number;
   notes: string;
-  addedAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface KalshiTrackedPosition {
+  ticker?: string;
+  title?: string;
   side: KalshiMarketSide;
   contracts: number;
   entryPriceCents: number;
+  currentPriceCents?: number | null;
+  currentValueCents?: number | null;
+  costBasisCents?: number | null;
+  unrealizedPnLCents?: number | null;
+}
+
+export type KalshiBetMovementStatus =
+  | "favorable"
+  | "unfavorable"
+  | "unchanged"
+  | "unavailable";
+
+export interface KalshiBetPerformance {
+  currentSidePriceCents: number | null;
+  movementCents: number | null;
+  movementStatus: KalshiBetMovementStatus;
+  estimatedCurrentValue: number | null;
+  estimatedProfitLoss: number | null;
+  estimatedPayout: number | null;
+  estimatedMaxProfit: number | null;
+  amountRisked: number;
+}
+
+export interface KalshiLiveContext {
+  available: boolean;
+  source: "kalshi_live_data" | "unavailable";
+  sport?: string | null;
+  status?: string | null;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  period?: string | null;
+  clock?: string | null;
+  updatedAt?: string | null;
+  unavailableReason?: string;
+}
+
+export interface KalshiMarketDataQuality {
+  marketDataStatus: "live" | "stale" | "unavailable";
+  positionStatus: "matched" | "none" | "unavailable";
+  liveContextStatus: "available" | "unavailable";
+  lastUpdated: string;
+  message?: string;
 }
 
 export interface KalshiMarketSnapshot {
   ticker: string;
+  eventTicker?: string | null;
   title: string;
+  displayTitle?: string | null;
   subtitle?: string;
+  sport?: string | null;
+  competition?: string | null;
+  scope?: string | null;
+  eventTitle?: string | null;
   status: string;
   yesBidCents: number | null;
   yesAskCents: number | null;
@@ -139,6 +200,30 @@ export interface KalshiMarketSnapshot {
   closeTime?: string | null;
   updatedAt?: string | null;
   position?: KalshiTrackedPosition | null;
+  liveContext?: KalshiLiveContext;
+  dataQuality?: KalshiMarketDataQuality;
+}
+
+export interface KalshiSportFilterOption {
+  sportKey: string;
+  sportName: string;
+  competitions: string[];
+  scopes: string[];
+}
+
+export interface KalshiOverlayState {
+  mode: "kalshi-only";
+  watchedMarkets: KalshiMarketSnapshot[];
+  positions: KalshiTrackedPosition[];
+  manualBets: [];
+  dataQuality: {
+    marketDataStatus: "live" | "stale" | "unavailable";
+    positionsStatus: "available" | "unavailable";
+    positionStatus?: "available" | "unavailable";
+    lastUpdated: string;
+    message?: string;
+  };
+  updatedAt: string;
 }
 
 export interface KalshiOrderbookLevel {

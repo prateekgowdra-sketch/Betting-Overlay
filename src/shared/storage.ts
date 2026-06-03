@@ -199,12 +199,51 @@ export async function getKalshiWatchlist(): Promise<KalshiWatchlistItem[]> {
     return existing
       .filter((item) => item && typeof item.ticker === "string" && typeof item.title === "string")
       .map((item) => ({
+        id:
+          typeof item.id === "string" && item.id
+            ? item.id
+            : `watch-${item.ticker}-${
+                item.createdAt ??
+                (item as KalshiWatchlistItem & { addedAt?: string }).addedAt ??
+                new Date().toISOString()
+              }`,
         ticker: item.ticker,
+        eventTicker:
+          typeof item.eventTicker === "string" && item.eventTicker ? item.eventTicker : null,
         title: item.title,
+        displayTitle:
+          typeof item.displayTitle === "string" && item.displayTitle ? item.displayTitle : null,
+        sport: typeof item.sport === "string" && item.sport ? item.sport : null,
+        competition:
+          typeof item.competition === "string" && item.competition ? item.competition : null,
+        scope: typeof item.scope === "string" && item.scope ? item.scope : null,
         userSide: item.userSide === "NO" ? "NO" : "YES",
         entryPriceCents: typeof item.entryPriceCents === "number" ? item.entryPriceCents : 50,
+        contracts:
+          typeof item.contracts === "number" && Number.isFinite(item.contracts)
+            ? Math.max(0, item.contracts)
+            : 0,
+        amountRisked:
+          typeof item.amountRisked === "number" && Number.isFinite(item.amountRisked)
+            ? Math.max(0, item.amountRisked)
+            : typeof item.contracts === "number" && Number.isFinite(item.contracts)
+              ? Math.max(0, (item.contracts * item.entryPriceCents) / 100)
+              : 0,
         notes: typeof item.notes === "string" ? item.notes : "",
-        addedAt: item.addedAt ?? new Date().toISOString()
+        createdAt:
+          typeof item.createdAt === "string"
+            ? item.createdAt
+            : typeof (item as KalshiWatchlistItem & { addedAt?: string }).addedAt === "string"
+              ? (item as KalshiWatchlistItem & { addedAt?: string }).addedAt!
+              : new Date().toISOString(),
+        updatedAt:
+          typeof item.updatedAt === "string"
+            ? item.updatedAt
+            : typeof item.createdAt === "string"
+              ? item.createdAt
+              : typeof (item as KalshiWatchlistItem & { addedAt?: string }).addedAt === "string"
+                ? (item as KalshiWatchlistItem & { addedAt?: string }).addedAt!
+                : new Date().toISOString()
       }));
   }
 

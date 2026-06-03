@@ -14,6 +14,7 @@ import {
 import {
   KalshiMarketSide,
   KalshiMarketSnapshot,
+  KalshiSportFilterOption,
   KalshiWatchlistItem
 } from "../shared/types";
 
@@ -45,6 +46,14 @@ function formatVolume(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function getDisplayTitle(item: { displayTitle?: string | null; title: string }): string {
+  return item.displayTitle || item.title;
+}
+
 function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapshot): number {
   if (side === "YES") {
     return market.yesAskCents ?? market.yesBidCents ?? market.lastPriceCents ?? 50;
@@ -67,12 +76,18 @@ function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapsh
 
 async function loadSearchResults(
   query: string,
-  status: string
+  status: string,
+  sport?: string,
+  competition?: string,
+  scope?: string
 ): Promise<KalshiMarketsResponse> {
-  return backendApi.getKalshiMarkets({
+  return backendApi.getKalshiSportsMarkets({
     limit: 30,
     status,
-    query: query.trim() || undefined
+    sport: sport || undefined,
+    competition: competition || undefined,
+    scope: scope || undefined,
+    search: query.trim() || undefined
   });
 }
 
@@ -82,6 +97,10 @@ export function PopupApp() {
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("open");
+  const [sportFilters, setSportFilters] = useState<KalshiSportFilterOption[]>([]);
+  const [selectedSport, setSelectedSport] = useState("");
+  const [selectedCompetition, setSelectedCompetition] = useState("");
+  const [selectedScope, setSelectedScope] = useState("");
   const [searchResults, setSearchResults] = useState<KalshiMarketSnapshot[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchError, setSearchError] = useState("");
@@ -93,8 +112,9 @@ export function PopupApp() {
       getAppSettings(),
       getKalshiWatchlist(),
       backendApi.getBackendStatus().catch(() => null),
+      backendApi.getKalshiSportsFilters().catch(() => null),
       loadSearchResults("", "open").catch(() => null)
-    ]).then(([nextSettings, nextWatchlist, nextBackendStatus, initialResults]) => {
+    ]).then(([nextSettings, nextWatchlist, nextBackendStatus, nextSportFilters, initialResults]) => {
       const marketTrackerSettings =
         nextSettings.dataMode === "markets"
           ? nextSettings
@@ -106,6 +126,7 @@ export function PopupApp() {
       setSettings(marketTrackerSettings);
       setWatchlist(nextWatchlist);
       setBackendStatus(nextBackendStatus);
+      setSportFilters(nextSportFilters?.sports ?? []);
 
       if (initialResults) {
         setSearchResults(initialResults.markets);
@@ -132,12 +153,24 @@ export function PopupApp() {
     setIsSaving(false);
   }
 
-  async function runSearch(nextQuery = searchQuery, nextStatus = statusFilter) {
+  async function runSearch(
+    nextQuery = searchQuery,
+    nextStatus = statusFilter,
+    nextSport = selectedSport,
+    nextCompetition = selectedCompetition,
+    nextScope = selectedScope
+  ) {
     setIsLoadingResults(true);
     setSearchError("");
 
     try {
-      const response = await loadSearchResults(nextQuery, nextStatus);
+      const response = await loadSearchResults(
+        nextQuery,
+        nextStatus,
+        nextSport,
+        nextCompetition,
+        nextScope
+      );
       setSearchResults(response.markets);
       setSearchCursor(response.cursor);
     } catch (error) {
@@ -149,16 +182,6 @@ export function PopupApp() {
     }
   }
 
-  if (!settings) {
-    return <div className="popup-shell loading">Loading market tracker...</div>;
-  }
-
-  const watchlistByTicker = new Map(watchlist.map((item) => [item.ticker, item]));
-  const resultsWithState = searchResults.map((market) => ({
-    market,
-    isWatched: watchlistByTicker.has(market.ticker)
-  }));
-
   const watchlistSummary = useMemo(() => {
     if (watchlist.length === 0) {
       return "No watched markets yet";
@@ -167,18 +190,43 @@ export function PopupApp() {
     return `${watchlist.length} watched market${watchlist.length === 1 ? "" : "s"}`;
   }, [watchlist]);
 
+  if (!settings) {
+    return <div className="popup-shell loading">Loading market tracker...</div>;
+  }
+
+  const watchlistByTicker = new Map(watchlist.map((item) => [item.ticker, item]));
+  const selectedSportFilter =
+    sportFilters.find((sport) => sport.sportKey === selectedSport) ?? null;
+  const competitionOptions = selectedSportFilter?.competitions ?? [];
+  const scopeOptions = selectedSportFilter?.scopes ?? [];
+  const resultsWithState = searchResults.map((market) => ({
+    market,
+    isWatched: watchlistByTicker.has(market.ticker)
+  }));
+
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
       return;
     }
 
+    const defaultContracts = 0;
+    const defaultEntryPriceCents = getDefaultEntryPrice("YES", market);
     const nextItem: KalshiWatchlistItem = {
+      id: `watch-${market.ticker}-${Date.now()}`,
       ticker: market.ticker,
+      eventTicker: market.eventTicker ?? null,
       title: market.title,
+      displayTitle: market.displayTitle ?? null,
+      sport: market.sport ?? null,
+      competition: market.competition ?? null,
+      scope: market.scope ?? null,
       userSide: "YES",
-      entryPriceCents: getDefaultEntryPrice("YES", market),
+      entryPriceCents: defaultEntryPriceCents,
+      contracts: defaultContracts,
+      amountRisked: roundCurrency((defaultContracts * defaultEntryPriceCents) / 100),
       notes: "",
-      addedAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     await persistWatchlist([...watchlist, nextItem]);
@@ -189,7 +237,14 @@ export function PopupApp() {
     updater: (item: KalshiWatchlistItem) => KalshiWatchlistItem
   ) {
     await persistWatchlist(
-      watchlist.map((item) => (item.ticker === ticker ? updater(item) : item))
+      watchlist.map((item) =>
+        item.ticker === ticker
+          ? {
+              ...updater(item),
+              updatedAt: new Date().toISOString()
+            }
+          : item
+      )
     );
   }
 
@@ -272,9 +327,10 @@ export function PopupApp() {
             onChange={(event) => {
               const nextStatus = event.target.value;
               setStatusFilter(nextStatus);
-              void runSearch(searchQuery, nextStatus);
+              void runSearch(searchQuery, nextStatus, selectedSport, selectedCompetition, selectedScope);
             }}
           >
+            <option value="">All statuses</option>
             <option value="open">Open</option>
             <option value="paused">Paused</option>
             <option value="closed">Closed</option>
@@ -283,6 +339,60 @@ export function PopupApp() {
           <button type="button" className="primary-button" onClick={() => void runSearch()}>
             Search
           </button>
+        </div>
+
+        <div className="filter-row">
+          <select
+            value={selectedSport}
+            onChange={(event) => {
+              const nextSport = event.target.value;
+              setSelectedSport(nextSport);
+              setSelectedCompetition("");
+              setSelectedScope("");
+              void runSearch(searchQuery, statusFilter, nextSport, "", "");
+            }}
+          >
+            <option value="">All sports</option>
+            {sportFilters.map((sport) => (
+              <option value={sport.sportKey} key={sport.sportKey}>
+                {sport.sportName}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedCompetition}
+            disabled={!selectedSport || competitionOptions.length === 0}
+            onChange={(event) => {
+              const nextCompetition = event.target.value;
+              setSelectedCompetition(nextCompetition);
+              void runSearch(searchQuery, statusFilter, selectedSport, nextCompetition, selectedScope);
+            }}
+          >
+            <option value="">All competitions</option>
+            {competitionOptions.map((competition) => (
+              <option value={competition} key={competition}>
+                {competition}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedScope}
+            disabled={!selectedSport || scopeOptions.length === 0}
+            onChange={(event) => {
+              const nextScope = event.target.value;
+              setSelectedScope(nextScope);
+              void runSearch(searchQuery, statusFilter, selectedSport, selectedCompetition, nextScope);
+            }}
+          >
+            <option value="">All scopes</option>
+            {scopeOptions.map((scope) => (
+              <option value={scope} key={scope}>
+                {scope}
+              </option>
+            ))}
+          </select>
         </div>
 
         {searchError ? <div className="error-copy">{searchError}</div> : null}
@@ -296,7 +406,7 @@ export function PopupApp() {
             resultsWithState.map(({ market, isWatched }) => (
               <article className="position-card" key={market.ticker}>
                 <div className="position-topline">
-                  <span className="market">{market.title}</span>
+                  <span className="market">{getDisplayTitle(market)}</span>
                   <button
                     type="button"
                     className={isWatched ? "inline-button muted-button" : "inline-button"}
@@ -307,6 +417,10 @@ export function PopupApp() {
                 </div>
                 <div className="position-meta">
                   <span>{market.ticker}</span>
+                  <span>{[market.sport, market.competition, market.scope].filter(Boolean).join(" · ") || market.status}</span>
+                </div>
+                <div className="position-meta">
+                  <span>{market.eventTitle ?? market.eventTicker ?? "Kalshi market"}</span>
                   <span>{market.status}</span>
                 </div>
                 <div className="position-pricing">
@@ -340,7 +454,7 @@ export function PopupApp() {
             watchlist.map((item) => (
               <article className="position-card" key={item.ticker}>
                 <div className="position-topline">
-                  <span className="market">{item.title}</span>
+                  <span className="market">{getDisplayTitle(item)}</span>
                   <button
                     type="button"
                     className="inline-button"
@@ -351,9 +465,12 @@ export function PopupApp() {
                 </div>
                 <div className="position-meta">
                   <span>{item.ticker}</span>
-                  <span>Added {new Date(item.addedAt).toLocaleDateString()}</span>
+                  <span>Added {new Date(item.createdAt).toLocaleDateString()}</span>
                 </div>
-
+                <div className="position-meta">
+                  <span>{[item.sport, item.competition, item.scope].filter(Boolean).join(" · ") || "Kalshi market"}</span>
+                  <span>{item.eventTicker ?? ""}</span>
+                </div>
                 <div className="field-grid compact-grid">
                   <label>
                     Your side
@@ -379,12 +496,65 @@ export function PopupApp() {
                       max={100}
                       value={item.entryPriceCents}
                       onChange={(event) =>
-                        void updateWatchlistItem(item.ticker, (current) => ({
-                          ...current,
-                          entryPriceCents: Math.max(
+                        void updateWatchlistItem(item.ticker, (current) => {
+                          const entryPriceCents = Math.max(
                             0,
                             Math.min(100, Number(event.target.value) || 0)
-                          )
+                          );
+
+                          return {
+                            ...current,
+                            entryPriceCents,
+                            amountRisked: roundCurrency(
+                              current.contracts * (entryPriceCents / 100)
+                            )
+                          };
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Contracts
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.contracts}
+                      onChange={(event) =>
+                        void updateWatchlistItem(item.ticker, (current) => {
+                          const contracts = roundCurrency(Math.max(0, Number(event.target.value) || 0));
+
+                          return {
+                            ...current,
+                            contracts,
+                            amountRisked: roundCurrency(
+                              contracts * (current.entryPriceCents / 100)
+                            )
+                          };
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Amount risked ($)
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.amountRisked}
+                      onChange={(event) =>
+                        void updateWatchlistItem(item.ticker, (current) => ({
+                          ...current,
+                          amountRisked: roundCurrency(Math.max(0, Number(event.target.value) || 0)),
+                          contracts:
+                            current.entryPriceCents > 0
+                              ? roundCurrency(
+                                  Math.max(0, Number(event.target.value) || 0) /
+                                    (current.entryPriceCents / 100)
+                                )
+                              : current.contracts
                         }))
                       }
                     />

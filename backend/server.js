@@ -67,9 +67,13 @@ const AVAILABLE_ROUTES = [
   "GET /api/live/games/today",
   "GET /api/live/game/:gameId",
   "GET /api/live/players/:gameId",
+  "GET /api/overlay/state",
+  "GET /api/kalshi/auth/health",
   "GET /api/kalshi/balance",
   "GET /api/kalshi/positions",
   "GET /api/kalshi/markets",
+  "GET /api/kalshi/sports/filters",
+  "GET /api/kalshi/sports/markets",
   "GET /api/kalshi/market/:ticker",
   "GET /api/kalshi/market/:ticker/orderbook",
   "GET /api/kalshi/positions/:gameId",
@@ -174,6 +178,22 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/overlay/state") {
+    sendJson(
+      response,
+      200,
+      await kalshiService.getOverlayState({
+        tickers: url.searchParams.get("tickers") || undefined
+      })
+    );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/kalshi/auth/health") {
+    sendJson(response, 200, kalshiService.getAuthHealth());
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/kalshi/balance") {
     try {
       sendJson(response, 200, await kalshiService.getBalance());
@@ -227,6 +247,68 @@ const server = createServer(async (request, response) => {
       sendJson(response, 502, {
         error: "Failed to fetch Kalshi markets",
         details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/kalshi/sports/filters") {
+    try {
+      const limitParam = Number(url.searchParams.get("limit") || 100);
+      const limit = Number.isFinite(limitParam)
+        ? Math.max(1, Math.min(100, Math.round(limitParam)))
+        : 100;
+
+      sendJson(
+        response,
+        200,
+        await kalshiService.getSportsFilters({
+          limit,
+          status: url.searchParams.get("status") || "open"
+        })
+      );
+    } catch (error) {
+      sendJson(response, 502, {
+        error: "Failed to fetch Kalshi sports filters",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/kalshi/sports/markets") {
+    try {
+      const limitParam = Number(url.searchParams.get("limit") || 30);
+      const limit = Number.isFinite(limitParam)
+        ? Math.max(1, Math.min(100, Math.round(limitParam)))
+        : 30;
+
+      sendJson(
+        response,
+        200,
+        await kalshiService.getSportsMarkets({
+          sport: url.searchParams.get("sport") || undefined,
+          competition: url.searchParams.get("competition") || undefined,
+          scope: url.searchParams.get("scope") || undefined,
+          status: url.searchParams.has("status")
+            ? url.searchParams.get("status") || undefined
+            : "open",
+          search: url.searchParams.get("search") || undefined,
+          cursor: url.searchParams.get("cursor") || undefined,
+          limit
+        })
+      );
+    } catch (error) {
+      const isRateLimited =
+        error instanceof Error && error.message.includes("429");
+
+      sendJson(response, isRateLimited ? 429 : 502, {
+        error: "Failed to fetch Kalshi sports markets",
+        details: isRateLimited
+          ? "Kalshi rate limited the market search. Wait a minute and try again, or narrow the query/status."
+          : error instanceof Error
+            ? error.message
+            : "Unknown error"
       });
     }
     return;
