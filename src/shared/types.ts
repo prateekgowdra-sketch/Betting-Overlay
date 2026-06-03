@@ -106,6 +106,18 @@ export interface OverlayData {
 }
 
 export type KalshiMarketSide = "YES" | "NO";
+export type KalshiMarketLifecycleStatus =
+  | "open"
+  | "closed"
+  | "finalized"
+  | "settled"
+  | "unavailable";
+export type KalshiMarketDataStatus =
+  | "live"
+  | "stale"
+  | "unavailable"
+  | "finalized"
+  | "settled";
 
 export interface KalshiWatchlistItem {
   id: string;
@@ -121,6 +133,30 @@ export interface KalshiWatchlistItem {
   contracts: number;
   amountRisked: number;
   notes: string;
+  hidden?: boolean;
+  hiddenAt?: string | null;
+  removedAt?: string | null;
+  archived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KalshiComboLeg {
+  id: string;
+  ticker: string;
+  title: string;
+  displayTitle?: string | null;
+  userSide: KalshiMarketSide;
+  entryPriceCents: number;
+  amountRisked: number;
+  notes: string;
+}
+
+export interface KalshiComboTracker {
+  id: string;
+  name: string;
+  legs: KalshiComboLeg[];
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -170,7 +206,7 @@ export interface KalshiLiveContext {
 }
 
 export interface KalshiMarketDataQuality {
-  marketDataStatus: "live" | "stale" | "unavailable";
+  marketDataStatus: KalshiMarketDataStatus;
   positionStatus: "matched" | "none" | "unavailable";
   liveContextStatus: "available" | "unavailable";
   lastUpdated: string;
@@ -188,6 +224,11 @@ export interface KalshiMarketSnapshot {
   scope?: string | null;
   eventTitle?: string | null;
   status: string;
+  lifecycleStatus?: KalshiMarketLifecycleStatus;
+  isActive?: boolean;
+  isResolved?: boolean;
+  winningSide?: KalshiMarketSide | null;
+  resultKnown?: boolean;
   yesBidCents: number | null;
   yesAskCents: number | null;
   noBidCents: number | null;
@@ -216,8 +257,9 @@ export interface KalshiOverlayState {
   watchedMarkets: KalshiMarketSnapshot[];
   positions: KalshiTrackedPosition[];
   manualBets: [];
+  comboTrackers?: KalshiComboTracker[];
   dataQuality: {
-    marketDataStatus: "live" | "stale" | "unavailable";
+    marketDataStatus: KalshiMarketDataStatus;
     positionsStatus: "available" | "unavailable";
     positionStatus?: "available" | "unavailable";
     lastUpdated: string;

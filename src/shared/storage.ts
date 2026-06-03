@@ -1,9 +1,15 @@
-import { KalshiWatchlistItem, ManualParlay, OverlayDataMode } from "./types";
+import {
+  KalshiComboTracker,
+  KalshiWatchlistItem,
+  ManualParlay,
+  OverlayDataMode
+} from "./types";
 
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
 export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
 export const KALSHI_WATCHLIST_KEY = "kalshi-live-overlay-watchlist";
+export const KALSHI_COMBO_TRACKERS_KEY = "kalshi-live-overlay-combo-trackers";
 const PARLAY_API_URL = "http://localhost:3001/api/parlays";
 const OVERLAY_UI_VERSION = 4;
 
@@ -36,6 +42,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 const DEFAULT_KALSHI_WATCHLIST: KalshiWatchlistItem[] = [];
+const DEFAULT_KALSHI_COMBO_TRACKERS: KalshiComboTracker[] = [];
 
 const DEFAULT_MANUAL_PARLAY: ManualParlay = {
   id: "manual-parlay-default",
@@ -230,6 +237,10 @@ export async function getKalshiWatchlist(): Promise<KalshiWatchlistItem[]> {
               ? Math.max(0, (item.contracts * item.entryPriceCents) / 100)
               : 0,
         notes: typeof item.notes === "string" ? item.notes : "",
+        hidden: Boolean(item.hidden),
+        hiddenAt: typeof item.hiddenAt === "string" ? item.hiddenAt : null,
+        removedAt: typeof item.removedAt === "string" ? item.removedAt : null,
+        archived: Boolean(item.archived),
         createdAt:
           typeof item.createdAt === "string"
             ? item.createdAt
@@ -254,6 +265,52 @@ export async function getKalshiWatchlist(): Promise<KalshiWatchlistItem[]> {
 export async function saveKalshiWatchlist(watchlist: KalshiWatchlistItem[]): Promise<void> {
   await safeStorageSet({
     [KALSHI_WATCHLIST_KEY]: watchlist
+  });
+}
+
+export async function getKalshiComboTrackers(): Promise<KalshiComboTracker[]> {
+  const existing = await safeStorageGet<KalshiComboTracker[]>(KALSHI_COMBO_TRACKERS_KEY);
+
+  if (Array.isArray(existing)) {
+    return existing
+      .filter((combo) => combo && typeof combo.id === "string" && typeof combo.name === "string")
+      .map((combo) => ({
+        id: combo.id,
+        name: combo.name.trim() || "Untitled combo",
+        legs: Array.isArray(combo.legs)
+          ? combo.legs
+              .filter((leg) => leg && typeof leg.ticker === "string" && typeof leg.title === "string")
+              .map((leg) => ({
+                id: typeof leg.id === "string" && leg.id ? leg.id : `leg-${leg.ticker}-${Date.now()}`,
+                ticker: leg.ticker,
+                title: leg.title,
+                displayTitle:
+                  typeof leg.displayTitle === "string" && leg.displayTitle ? leg.displayTitle : null,
+                userSide: leg.userSide === "NO" ? "NO" : "YES",
+                entryPriceCents:
+                  typeof leg.entryPriceCents === "number" && Number.isFinite(leg.entryPriceCents)
+                    ? Math.max(0, Math.min(100, leg.entryPriceCents))
+                    : 50,
+                amountRisked:
+                  typeof leg.amountRisked === "number" && Number.isFinite(leg.amountRisked)
+                    ? Math.max(0, leg.amountRisked)
+                    : 0,
+                notes: typeof leg.notes === "string" ? leg.notes : ""
+              }))
+          : [],
+        archived: Boolean(combo.archived),
+        createdAt: typeof combo.createdAt === "string" ? combo.createdAt : new Date().toISOString(),
+        updatedAt: typeof combo.updatedAt === "string" ? combo.updatedAt : new Date().toISOString()
+      }));
+  }
+
+  await safeStorageSet({ [KALSHI_COMBO_TRACKERS_KEY]: DEFAULT_KALSHI_COMBO_TRACKERS });
+  return DEFAULT_KALSHI_COMBO_TRACKERS;
+}
+
+export async function saveKalshiComboTrackers(combos: KalshiComboTracker[]): Promise<void> {
+  await safeStorageSet({
+    [KALSHI_COMBO_TRACKERS_KEY]: combos
   });
 }
 

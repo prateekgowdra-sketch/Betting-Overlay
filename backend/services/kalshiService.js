@@ -1,6 +1,11 @@
 import { kalshiClient } from "./kalshiClient.js";
 import { parseKalshiMarketTitle } from "./marketParsingService.js";
 
+const marketSearchCache = new Map();
+const MARKET_SEARCH_CACHE_TTL_MS = 30000;
+const liveContextCache = new Map();
+const LIVE_CONTEXT_CACHE_TTL_MS = 120000;
+
 function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -16,6 +21,50 @@ function currentByPlayer(game, playerName, statType) {
 
 function getNowIso() {
   return new Date().toISOString();
+}
+
+function getCachedValue(key) {
+  const cached = marketSearchCache.get(key);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.cachedAt > MARKET_SEARCH_CACHE_TTL_MS) {
+    marketSearchCache.delete(key);
+    return null;
+  }
+
+  return cached.value;
+}
+
+function setCachedValue(key, value) {
+  marketSearchCache.set(key, {
+    cachedAt: Date.now(),
+    value
+  });
+}
+
+function getCachedLiveContext(key) {
+  const cached = liveContextCache.get(key);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.cachedAt > LIVE_CONTEXT_CACHE_TTL_MS) {
+    liveContextCache.delete(key);
+    return null;
+  }
+
+  return cached.value;
+}
+
+function setCachedLiveContext(key, value) {
+  liveContextCache.set(key, {
+    cachedAt: Date.now(),
+    value
+  });
 }
 
 function getMockPortfolioPositions() {
@@ -533,10 +582,155 @@ function getReadableMarketTitle(rawMarket, fallbackTitle) {
   return rawTitle;
 }
 
+function normalizeLifecycleStatus(status) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+
+  if (!normalized) {
+    return "unavailable";
+  }
+
+  if (["settled"].some((token) => normalized.includes(token))) {
+    return "settled";
+  }
+
+  if (["finalized", "resolved"].some((token) => normalized.includes(token))) {
+    return "finalized";
+  }
+
+  if (["closed", "expired", "inactive", "final"].some((token) => normalized.includes(token))) {
+    return "closed";
+  }
+
+  if (["active", "open", "live", "trading"].some((token) => normalized.includes(token))) {
+    return "open";
+  }
+
+  return "unavailable";
+}
+
+function isResolvedLifecycle(lifecycleStatus) {
+  return ["closed", "finalized", "settled"].includes(lifecycleStatus);
+}
+
+function parseWinningSideValue(value) {
+  if (typeof value === "boolean") {
+    return value ? "YES" : "NO";
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value >= 99) {
+      return "YES";
+    }
+
+    if (value <= 1) {
+      return "NO";
+    }
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (["yes", "y", "true", "1", "yes_won"].includes(normalized)) {
+    return "YES";
+  }
+
+  if (["no", "n", "false", "0", "no_won"].includes(normalized)) {
+    return "NO";
+  }
+
+  if (normalized.includes("yes") && normalized.includes("won")) {
+    return "YES";
+  }
+
+  if (normalized.includes("no") && normalized.includes("won")) {
+    return "NO";
+  }
+
+  return null;
+}
+
+function getWinningSide(rawMarket, lifecycleStatus, lastPriceCents) {
+  const explicitWinningSide = [
+    rawMarket?.winning_side,
+    rawMarket?.winningSide,
+    rawMarket?.winner,
+    rawMarket?.result,
+    rawMarket?.outcome,
+    rawMarket?.settlement_result,
+    rawMarket?.settlementResult,
+    rawMarket?.resolved_outcome,
+    rawMarket?.resolvedOutcome,
+    rawMarket?.market_result,
+    findNestedValue(rawMarket, [
+      "winning_side",
+      "winningSide",
+      "winner",
+      "result",
+      "outcome",
+      "settlement_result",
+      "settlementResult",
+      "resolved_outcome",
+      "resolvedOutcome",
+      "market_result"
+    ])
+  ]
+    .map(parseWinningSideValue)
+    .find(Boolean);
+
+  if (explicitWinningSide) {
+    return explicitWinningSide;
+  }
+
+  const explicitSettlementPrice = [
+    rawMarket?.settlement_price_cents,
+    rawMarket?.settlementPriceCents,
+    rawMarket?.settlement_value_cents,
+    rawMarket?.settlementValueCents,
+    rawMarket?.final_price_cents,
+    rawMarket?.finalPriceCents,
+    dollarsStringToCents(rawMarket?.settlement_price_dollars),
+    dollarsStringToCents(rawMarket?.settlementPriceDollars),
+    dollarsStringToCents(rawMarket?.settlement_value_dollars),
+    dollarsStringToCents(rawMarket?.settlementValueDollars),
+    dollarsStringToCents(rawMarket?.final_price_dollars),
+    dollarsStringToCents(rawMarket?.finalPriceDollars)
+  ]
+    .map(parseWinningSideValue)
+    .find(Boolean);
+
+  if (explicitSettlementPrice) {
+    return explicitSettlementPrice;
+  }
+
+  if (rawMarket?.yes_won === true || rawMarket?.yesWon === true) {
+    return "YES";
+  }
+
+  if (rawMarket?.no_won === true || rawMarket?.noWon === true) {
+    return "NO";
+  }
+
+  if (isResolvedLifecycle(lifecycleStatus)) {
+    return parseWinningSideValue(lastPriceCents);
+  }
+
+  return null;
+}
+
 function normalizeKalshiMarket(rawMarket) {
   if (!rawMarket) {
     return null;
   }
+
+  const lifecycleStatus = normalizeLifecycleStatus(rawMarket.status);
+  const isResolved = isResolvedLifecycle(lifecycleStatus);
 
   if ("yes_ask_cents" in rawMarket || "yes_bid_cents" in rawMarket) {
     const yesPriceCents =
@@ -545,14 +739,21 @@ function normalizeKalshiMarket(rawMarket) {
       rawMarket.no_ask_cents ??
       rawMarket.no_bid_cents ??
       (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
+    const lastPriceCents = rawMarket.last_price_cents ?? yesPriceCents;
+    const winningSide = getWinningSide(rawMarket, lifecycleStatus, lastPriceCents);
 
     return {
       ticker: rawMarket.ticker,
       title: rawMarket.title,
       status: rawMarket.status,
+      lifecycleStatus,
+      isActive: lifecycleStatus === "open",
+      isResolved,
+      winningSide,
+      resultKnown: Boolean(winningSide),
       yesPriceCents,
       noPriceCents,
-      lastPriceCents: rawMarket.last_price_cents ?? yesPriceCents,
+      lastPriceCents,
       updatedAt: rawMarket.updated_at ?? null
     };
   }
@@ -565,14 +766,21 @@ function normalizeKalshiMarket(rawMarket) {
     dollarsStringToCents(rawMarket.no_ask_dollars) ??
     dollarsStringToCents(rawMarket.no_bid_dollars) ??
     (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
+  const lastPriceCents = dollarsStringToCents(rawMarket.last_price_dollars) ?? yesPriceCents;
+  const winningSide = getWinningSide(rawMarket, lifecycleStatus, lastPriceCents);
 
   return {
     ticker: rawMarket.ticker,
     title: rawMarket.title ?? rawMarket.yes_sub_title ?? rawMarket.ticker,
     status: rawMarket.status ?? "unknown",
+    lifecycleStatus,
+    isActive: lifecycleStatus === "open",
+    isResolved,
+    winningSide,
+    resultKnown: Boolean(winningSide),
     yesPriceCents,
     noPriceCents,
-    lastPriceCents: dollarsStringToCents(rawMarket.last_price_dollars) ?? yesPriceCents,
+    lastPriceCents,
     updatedAt: rawMarket.updated_time ?? null
   };
 }
@@ -592,6 +800,18 @@ function normalizeTrackedMarket(rawMarket, position = null) {
     rawMarket.yes_sub_title ??
     normalized.title;
   const displayTitle = getReadableMarketTitle(rawMarket, title);
+  const resolvedYesCents = normalized.resultKnown
+    ? normalized.winningSide === "YES"
+      ? 100
+      : 0
+    : null;
+  const resolvedNoCents = normalized.resultKnown
+    ? normalized.winningSide === "NO"
+      ? 100
+      : 0
+    : null;
+  const shouldUseResolvedPrices = normalized.isResolved && normalized.resultKnown;
+  const shouldHideUnknownResolvedPrices = normalized.isResolved && !normalized.resultKnown;
 
   return {
     ticker: normalized.ticker,
@@ -604,11 +824,31 @@ function normalizeTrackedMarket(rawMarket, position = null) {
     scope: metadata.scope,
     eventTitle: rawMarket.event_title ?? rawMarket.eventTitle ?? null,
     status: rawMarket.status ?? normalized.status ?? "unknown",
-    yesBidCents:
-      normalized.yesPriceCents ?? dollarsStringToCents(rawMarket.yes_bid_dollars) ?? null,
-    yesAskCents: dollarsStringToCents(rawMarket.yes_ask_dollars) ?? rawMarket.yes_ask_cents ?? null,
-    noBidCents: dollarsStringToCents(rawMarket.no_bid_dollars) ?? rawMarket.no_bid_cents ?? null,
-    noAskCents: normalized.noPriceCents ?? dollarsStringToCents(rawMarket.no_ask_dollars) ?? null,
+    lifecycleStatus: normalized.lifecycleStatus,
+    isActive: normalized.isActive,
+    isResolved: normalized.isResolved,
+    winningSide: normalized.winningSide,
+    resultKnown: normalized.resultKnown,
+    yesBidCents: shouldUseResolvedPrices
+      ? resolvedYesCents
+      : shouldHideUnknownResolvedPrices
+        ? null
+        : dollarsStringToCents(rawMarket.yes_bid_dollars) ?? rawMarket.yes_bid_cents ?? null,
+    yesAskCents: shouldUseResolvedPrices
+      ? resolvedYesCents
+      : shouldHideUnknownResolvedPrices
+        ? null
+        : dollarsStringToCents(rawMarket.yes_ask_dollars) ?? rawMarket.yes_ask_cents ?? null,
+    noBidCents: shouldUseResolvedPrices
+      ? resolvedNoCents
+      : shouldHideUnknownResolvedPrices
+        ? null
+        : dollarsStringToCents(rawMarket.no_bid_dollars) ?? rawMarket.no_bid_cents ?? null,
+    noAskCents: shouldUseResolvedPrices
+      ? resolvedNoCents
+      : shouldHideUnknownResolvedPrices
+        ? null
+        : dollarsStringToCents(rawMarket.no_ask_dollars) ?? rawMarket.no_ask_cents ?? null,
     lastPriceCents: normalized.lastPriceCents,
     previousPriceCents:
       dollarsStringToCents(rawMarket.previous_price_dollars) ?? rawMarket.previous_price_cents ?? null,
@@ -819,6 +1059,20 @@ const TEAM_SEARCH_ALIASES = {
 function expandSearchToken(token) {
   const alias = TEAM_SEARCH_ALIASES[token];
   return alias ? [token, alias] : [token];
+}
+
+function getExpandedSearchTokens(value) {
+  return Array.from(new Set(getSearchTokens(value).flatMap(expandSearchToken)));
+}
+
+function getSearchPageBudget(filters = {}) {
+  const expandedTokens = getExpandedSearchTokens(filters.search);
+
+  if (expandedTokens.some((token) => ["xmlb", "xnfl", "xnhl", "wnba", "soccer", "tennis", "golf"].includes(token))) {
+    return 4;
+  }
+
+  return filters.search ? 3 : 1;
 }
 
 function marketSearchHaystack(market) {
@@ -1076,9 +1330,7 @@ function normalizePortfolioPosition(position) {
 }
 
 function isClosedMarketStatus(status) {
-  return ["closed", "settled", "finalized", "expired"].includes(
-    String(status ?? "").toLowerCase()
-  );
+  return isResolvedLifecycle(normalizeLifecycleStatus(status));
 }
 
 function getMarketDataStatus(market, fetchedAt = getNowIso()) {
@@ -1086,8 +1338,8 @@ function getMarketDataStatus(market, fetchedAt = getNowIso()) {
     return "unavailable";
   }
 
-  if (isClosedMarketStatus(market.status)) {
-    return "live";
+  if (market.isResolved || isClosedMarketStatus(market.status)) {
+    return market.lifecycleStatus === "settled" ? "settled" : "finalized";
   }
 
   const updatedAt = market.updatedAt ? new Date(market.updatedAt).getTime() : NaN;
@@ -1151,8 +1403,10 @@ function attachPerMarketQuality(market, position, liveContext, positionsAvailabl
       marketDataStatus,
       positionStatus,
       liveContextStatus: liveContext.available ? "available" : "unavailable",
-      lastUpdated: market.updatedAt ?? timestamp,
-      ...(isClosedMarketStatus(market.status) ? { message: `Market is ${market.status}` } : {})
+      lastUpdated: timestamp,
+      ...(market.isResolved || isClosedMarketStatus(market.status)
+        ? { message: `Market is ${market.lifecycleStatus ?? market.status}` }
+        : {})
     }
   };
 }
@@ -1340,12 +1594,29 @@ class KalshiService {
     const limit = Number.isFinite(Number(filters.limit))
       ? Math.max(1, Math.min(100, Math.round(Number(filters.limit))))
       : 30;
+    const cacheKey = filters.search
+      ? JSON.stringify({
+          type: "sports-markets",
+          search: normalizeSearchText(filters.search),
+          status: filters.status ?? "",
+          sport: filters.sport ?? "",
+          competition: filters.competition ?? "",
+          scope: filters.scope ?? "",
+          limit
+        })
+      : "";
+    const cached = cacheKey ? getCachedValue(cacheKey) : null;
+
+    if (cached) {
+      return cached;
+    }
+
     const pageLimit = filters.search ? 100 : limit;
     const collectedMarkets = [];
     const associatedTickers = new Set();
     let cursor = filters.cursor;
     let response = null;
-    const maxPages = filters.search ? 2 : 1;
+    const maxPages = getSearchPageBudget(filters);
 
     for (let page = 0; page < maxPages; page += 1) {
       response = await this.getPublicMarkets({
@@ -1402,7 +1673,7 @@ class KalshiService {
       .filter((market, index, allMarkets) => allMarkets.findIndex((entry) => entry.ticker === market.ticker) === index)
       .slice(0, limit);
 
-    return {
+    const result = {
       ...(response ?? {
         mode: "real",
         environment: this.getPublicEnvironment(),
@@ -1410,6 +1681,27 @@ class KalshiService {
       }),
       markets
     };
+
+    if (cacheKey) {
+      setCachedValue(cacheKey, result);
+    }
+
+    return result;
+  }
+
+  async getFreshPublicMarketsByTicker(tickers = []) {
+    const markets = await Promise.all(
+      tickers.map(async (ticker) => {
+        try {
+          const response = await this.getPublicMarket(ticker);
+          return response.market ?? null;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return markets.filter(Boolean);
   }
 
   async getPublicMarket(ticker) {
@@ -1498,14 +1790,24 @@ class KalshiService {
       return unavailableLiveContext("Market data unavailable");
     }
 
+    const cacheKey = watchedMarket.eventTicker || watchedMarket.ticker;
+    const cached = getCachedLiveContext(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
     const embeddedContext = normalizeLiveContextFromPayload(watchedMarket, watchedMarket);
 
     if (embeddedContext) {
+      setCachedLiveContext(cacheKey, embeddedContext);
       return embeddedContext;
     }
 
     if (!watchedMarket.eventTicker) {
-      return unavailableLiveContext("No Kalshi event ticker was available for this market", watchedMarket);
+      const unavailable = unavailableLiveContext("No Kalshi event ticker was available for this market", watchedMarket);
+      setCachedLiveContext(cacheKey, unavailable);
+      return unavailable;
     }
 
     try {
@@ -1513,6 +1815,7 @@ class KalshiService {
       const liveContext = normalizeLiveContextFromPayload(liveDataResponse, watchedMarket);
 
       if (liveContext) {
+        setCachedLiveContext(cacheKey, liveContext);
         return liveContext;
       }
     } catch {
@@ -1524,13 +1827,18 @@ class KalshiService {
       const liveContext = normalizeLiveContextFromPayload(eventResponse, watchedMarket);
 
       if (liveContext) {
+        setCachedLiveContext(cacheKey, liveContext);
         return liveContext;
       }
     } catch {
-      return unavailableLiveContext("Kalshi event live data was unavailable", watchedMarket);
+      const unavailable = unavailableLiveContext("Kalshi event live data was unavailable", watchedMarket);
+      setCachedLiveContext(cacheKey, unavailable);
+      return unavailable;
     }
 
-    return unavailableLiveContext("Kalshi did not return live score context for this market", watchedMarket);
+    const unavailable = unavailableLiveContext("Kalshi did not return live score context for this market", watchedMarket);
+    setCachedLiveContext(cacheKey, unavailable);
+    return unavailable;
   }
 
   async getOverlayState(query = {}) {
@@ -1548,11 +1856,7 @@ class KalshiService {
     try {
       if (tickers.length > 0) {
         const requestedTickers = new Set(tickers);
-        const marketsResponse = await this.getPublicMarkets({
-          tickers: tickers.join(","),
-          limit: Math.max(tickers.length, 1)
-        });
-        watchedMarkets = marketsResponse.markets.filter((market) =>
+        watchedMarkets = (await this.getFreshPublicMarketsByTicker(tickers)).filter((market) =>
           requestedTickers.has(market.ticker)
         );
         marketDataStatus = watchedMarkets.length > 0 ? "live" : "unavailable";
@@ -1609,15 +1913,20 @@ class KalshiService {
       ? "live"
       : watchedMarketsWithPositions.some((market) => market.dataQuality?.marketDataStatus === "stale")
         ? "stale"
-        : tickers.length === 0
-          ? "live"
-          : "unavailable";
+        : watchedMarketsWithPositions.some((market) => market.dataQuality?.marketDataStatus === "settled")
+          ? "settled"
+          : watchedMarketsWithPositions.some((market) => market.dataQuality?.marketDataStatus === "finalized")
+            ? "finalized"
+            : tickers.length === 0
+              ? "live"
+              : "unavailable";
 
     return {
       mode: "kalshi-only",
       watchedMarkets: watchedMarketsWithPositions,
       positions,
       manualBets: [],
+      comboTrackers: [],
       dataQuality: {
         marketDataStatus: aggregateMarketStatus,
         positionsStatus,
@@ -1830,5 +2139,7 @@ class KalshiService {
     return clampPercent((position.currentPriceCents / 100) * 100);
   }
 }
+
+export { normalizeKalshiMarket, normalizeTrackedMarket };
 
 export const kalshiService = new KalshiService();

@@ -7,11 +7,14 @@ import {
 import {
   AppSettings,
   getAppSettings,
+  getKalshiComboTrackers,
   getKalshiWatchlist,
   saveAppSettings,
+  saveKalshiComboTrackers,
   saveKalshiWatchlist
 } from "../shared/storage";
 import {
+  KalshiComboTracker,
   KalshiMarketSide,
   KalshiMarketSnapshot,
   KalshiSportFilterOption,
@@ -54,7 +57,31 @@ function getDisplayTitle(item: { displayTitle?: string | null; title: string }):
   return item.displayTitle || item.title;
 }
 
+function getLifecycleLabel(market: KalshiMarketSnapshot): string {
+  return market.lifecycleStatus ?? market.status ?? "unknown";
+}
+
+function getResultLabel(market: KalshiMarketSnapshot): string {
+  if (!market.isResolved) {
+    return "";
+  }
+
+  if (!market.resultKnown || !market.winningSide) {
+    return "Finalized - result unknown";
+  }
+
+  return `Finalized - ${market.winningSide} won`;
+}
+
 function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapshot): number {
+  if (market.isResolved) {
+    if (!market.resultKnown || !market.winningSide) {
+      return 50;
+    }
+
+    return market.winningSide === side ? 100 : 0;
+  }
+
   if (side === "YES") {
     return market.yesAskCents ?? market.yesBidCents ?? market.lastPriceCents ?? 50;
   }
@@ -94,6 +121,7 @@ async function loadSearchResults(
 export function PopupApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
+  const [comboTrackers, setComboTrackers] = useState<KalshiComboTracker[]>([]);
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("open");
@@ -106,15 +134,18 @@ export function PopupApp() {
   const [searchError, setSearchError] = useState("");
   const [isLoadingResults, setIsLoadingResults] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [newComboName, setNewComboName] = useState("");
+  const [comboLegSelections, setComboLegSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void Promise.all([
       getAppSettings(),
       getKalshiWatchlist(),
+      getKalshiComboTrackers(),
       backendApi.getBackendStatus().catch(() => null),
       backendApi.getKalshiSportsFilters().catch(() => null),
       loadSearchResults("", "open").catch(() => null)
-    ]).then(([nextSettings, nextWatchlist, nextBackendStatus, nextSportFilters, initialResults]) => {
+    ]).then(([nextSettings, nextWatchlist, nextComboTrackers, nextBackendStatus, nextSportFilters, initialResults]) => {
       const marketTrackerSettings =
         nextSettings.dataMode === "markets"
           ? nextSettings
@@ -125,6 +156,7 @@ export function PopupApp() {
 
       setSettings(marketTrackerSettings);
       setWatchlist(nextWatchlist);
+      setComboTrackers(nextComboTrackers);
       setBackendStatus(nextBackendStatus);
       setSportFilters(nextSportFilters?.sports ?? []);
 
@@ -150,6 +182,13 @@ export function PopupApp() {
     setWatchlist(next);
     setIsSaving(true);
     await saveKalshiWatchlist(next);
+    setIsSaving(false);
+  }
+
+  async function persistComboTrackers(next: KalshiComboTracker[]) {
+    setComboTrackers(next);
+    setIsSaving(true);
+    await saveKalshiComboTrackers(next);
     setIsSaving(false);
   }
 
@@ -183,12 +222,24 @@ export function PopupApp() {
   }
 
   const watchlistSummary = useMemo(() => {
-    if (watchlist.length === 0) {
+    const visibleCount = watchlist.filter((item) => !item.archived && !item.hidden).length;
+
+    if (visibleCount === 0) {
       return "No watched markets yet";
     }
 
-    return `${watchlist.length} watched market${watchlist.length === 1 ? "" : "s"}`;
+    return `${visibleCount} watched market${visibleCount === 1 ? "" : "s"}`;
   }, [watchlist]);
+
+  const comboSummary = useMemo(() => {
+    const activeCombos = comboTrackers.filter((combo) => !combo.archived);
+
+    if (activeCombos.length === 0) {
+      return "No combos yet";
+    }
+
+    return `${activeCombos.length} combo tracker${activeCombos.length === 1 ? "" : "s"}`;
+  }, [comboTrackers]);
 
   if (!settings) {
     return <div className="popup-shell loading">Loading market tracker...</div>;
@@ -203,6 +254,8 @@ export function PopupApp() {
     market,
     isWatched: watchlistByTicker.has(market.ticker)
   }));
+  const visibleWatchlist = watchlist.filter((item) => !item.archived && !item.hidden);
+  const activeComboTrackers = comboTrackers.filter((combo) => !combo.archived);
 
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
@@ -250,6 +303,94 @@ export function PopupApp() {
 
   async function removeWatchlistItem(ticker: string) {
     await persistWatchlist(watchlist.filter((item) => item.ticker !== ticker));
+  }
+
+  async function createComboTracker() {
+    const name = newComboName.trim();
+
+    if (!name) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextCombo: KalshiComboTracker = {
+      id: `combo-${Date.now()}`,
+      name,
+      legs: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setNewComboName("");
+    await persistComboTrackers([...comboTrackers, nextCombo]);
+  }
+
+  async function updateComboTracker(
+    comboId: string,
+    updater: (combo: KalshiComboTracker) => KalshiComboTracker
+  ) {
+    await persistComboTrackers(
+      comboTrackers.map((combo) =>
+        combo.id === comboId
+          ? {
+              ...updater(combo),
+              updatedAt: new Date().toISOString()
+            }
+          : combo
+      )
+    );
+  }
+
+  async function archiveComboTracker(comboId: string) {
+    await updateComboTracker(comboId, (combo) => ({
+      ...combo,
+      archived: true
+    }));
+  }
+
+  async function addComboLeg(comboId: string) {
+    const ticker = comboLegSelections[comboId];
+    const watchItem = watchlist.find((item) => item.ticker === ticker);
+
+    if (!watchItem) {
+      return;
+    }
+
+    await updateComboTracker(comboId, (combo) => {
+      if (combo.legs.some((leg) => leg.ticker === ticker)) {
+        return combo;
+      }
+
+      return {
+        ...combo,
+        legs: [
+          ...combo.legs,
+          {
+            id: `leg-${ticker}-${Date.now()}`,
+            ticker,
+            title: watchItem.title,
+            displayTitle: watchItem.displayTitle ?? null,
+            userSide: watchItem.userSide,
+            entryPriceCents: watchItem.entryPriceCents,
+            amountRisked: watchItem.amountRisked,
+            notes: watchItem.notes
+          }
+        ]
+      };
+    });
+
+    setComboLegSelections((current) => ({
+      ...current,
+      [comboId]: ""
+    }));
+  }
+
+  async function removeComboLeg(comboId: string, legId: string) {
+    await updateComboTracker(comboId, (combo) => ({
+      ...combo,
+      legs: combo.legs.filter((leg) => leg.id !== legId)
+    }));
   }
 
   async function toggleWatchlistMarket(market: KalshiMarketSnapshot) {
@@ -417,16 +558,25 @@ export function PopupApp() {
                 </div>
                 <div className="position-meta">
                   <span>{market.ticker}</span>
-                  <span>{[market.sport, market.competition, market.scope].filter(Boolean).join(" · ") || market.status}</span>
+                  <span>{[market.sport, market.competition, market.scope].filter(Boolean).join(" · ") || getLifecycleLabel(market)}</span>
                 </div>
                 <div className="position-meta">
                   <span>{market.eventTitle ?? market.eventTicker ?? "Kalshi market"}</span>
-                  <span>{market.status}</span>
+                  <span>{getLifecycleLabel(market)}</span>
                 </div>
-                <div className="position-pricing">
-                  <span>YES {formatPrice(market.yesBidCents)} / {formatPrice(market.yesAskCents)}</span>
-                  <span>NO {formatPrice(market.noBidCents)} / {formatPrice(market.noAskCents)}</span>
-                </div>
+                {market.isResolved && !market.resultKnown ? (
+                  <div className="position-note">{getResultLabel(market)}</div>
+                ) : (
+                  <div className="position-pricing">
+                    <span>YES {formatPrice(market.yesBidCents)} / {formatPrice(market.yesAskCents)}</span>
+                    <span>NO {formatPrice(market.noBidCents)} / {formatPrice(market.noAskCents)}</span>
+                  </div>
+                )}
+                {market.isResolved ? (
+                  <div className="position-note">
+                    {getResultLabel(market)}. This market will appear under Settled / Finalized markets in the overlay.
+                  </div>
+                ) : null}
                 <div className="position-meta">
                   <span>Last {formatPrice(market.lastPriceCents)}</span>
                   <span>Volume {formatVolume(market.volume)}</span>
@@ -441,17 +591,191 @@ export function PopupApp() {
 
       <section className="panel">
         <div className="panel-header">
+          <h2>Combo Trackers</h2>
+          <span className="small-copy">{comboSummary}</span>
+        </div>
+
+        <div className="combo-create-row">
+          <input
+            value={newComboName}
+            placeholder="Combo name, e.g. NBA + MLB Night"
+            onChange={(event) => setNewComboName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void createComboTracker();
+              }
+            }}
+          />
+          <button type="button" className="primary-button" onClick={() => void createComboTracker()}>
+            Create
+          </button>
+        </div>
+
+        <div className="positions-list">
+          {activeComboTrackers.length === 0 ? (
+            <article className="position-card">
+              <div className="position-note">Create a combo to track several watched Kalshi markets together.</div>
+            </article>
+          ) : (
+            activeComboTrackers.map((combo) => {
+              const addableWatchlist = visibleWatchlist.filter(
+                (item) => !combo.legs.some((leg) => leg.ticker === item.ticker)
+              );
+
+              return (
+                <article className="position-card" key={combo.id}>
+                  <div className="position-topline">
+                    <span className="market">{combo.name}</span>
+                    <button
+                      type="button"
+                      className="inline-button muted-button"
+                      onClick={() => void archiveComboTracker(combo.id)}
+                    >
+                      Archive
+                    </button>
+                  </div>
+                  <div className="position-meta">
+                    <span>{combo.legs.length} leg{combo.legs.length === 1 ? "" : "s"}</span>
+                    <span>Estimated; markets may be correlated.</span>
+                  </div>
+                  <div className="combo-add-row">
+                    <select
+                      value={comboLegSelections[combo.id] ?? ""}
+                      disabled={addableWatchlist.length === 0}
+                      onChange={(event) =>
+                        setComboLegSelections((current) => ({
+                          ...current,
+                          [combo.id]: event.target.value
+                        }))
+                      }
+                    >
+                      <option value="">Add watched market</option>
+                      {addableWatchlist.map((item) => (
+                        <option value={item.ticker} key={item.ticker}>
+                          {getDisplayTitle(item)}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="inline-button"
+                      disabled={!comboLegSelections[combo.id]}
+                      onClick={() => void addComboLeg(combo.id)}
+                    >
+                      Add leg
+                    </button>
+                  </div>
+                  {combo.legs.length === 0 ? (
+                    <div className="position-note">Add watched markets as legs to start tracking this combo.</div>
+                  ) : (
+                    combo.legs.map((leg) => (
+                      <div className="combo-leg-editor" key={leg.id}>
+                        <div className="position-topline">
+                          <span className="market">{leg.displayTitle || leg.title}</span>
+                          <button
+                            type="button"
+                            className="inline-button muted-button"
+                            onClick={() => void removeComboLeg(combo.id, leg.id)}
+                          >
+                            Remove leg
+                          </button>
+                        </div>
+                        <div className="field-grid compact-grid">
+                          <label>
+                            Side
+                            <select
+                              value={leg.userSide}
+                              onChange={(event) =>
+                                void updateComboTracker(combo.id, (currentCombo) => ({
+                                  ...currentCombo,
+                                  legs: currentCombo.legs.map((currentLeg) =>
+                                    currentLeg.id === leg.id
+                                      ? {
+                                          ...currentLeg,
+                                          userSide: event.target.value as KalshiMarketSide
+                                        }
+                                      : currentLeg
+                                  )
+                                }))
+                              }
+                            >
+                              <option value="YES">YES</option>
+                              <option value="NO">NO</option>
+                            </select>
+                          </label>
+                          <label>
+                            Entry price (c)
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={leg.entryPriceCents}
+                              onChange={(event) =>
+                                void updateComboTracker(combo.id, (currentCombo) => ({
+                                  ...currentCombo,
+                                  legs: currentCombo.legs.map((currentLeg) =>
+                                    currentLeg.id === leg.id
+                                      ? {
+                                          ...currentLeg,
+                                          entryPriceCents: Math.max(
+                                            0,
+                                            Math.min(100, Number(event.target.value) || 0)
+                                          )
+                                        }
+                                      : currentLeg
+                                  )
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="field-span-2">
+                            Amount risked ($)
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={leg.amountRisked}
+                              onChange={(event) =>
+                                void updateComboTracker(combo.id, (currentCombo) => ({
+                                  ...currentCombo,
+                                  legs: currentCombo.legs.map((currentLeg) =>
+                                    currentLeg.id === leg.id
+                                      ? {
+                                          ...currentLeg,
+                                          amountRisked: roundCurrency(
+                                            Math.max(0, Number(event.target.value) || 0)
+                                          )
+                                        }
+                                      : currentLeg
+                                  )
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
           <h2>Watchlist</h2>
           <span className="small-copy">{watchlistSummary}</span>
         </div>
 
         <div className="positions-list">
-          {watchlist.length === 0 ? (
+          {visibleWatchlist.length === 0 ? (
             <article className="position-card">
               <div className="position-note">Add a Kalshi market above to start tracking it in the overlay.</div>
             </article>
           ) : (
-            watchlist.map((item) => (
+            visibleWatchlist.map((item) => (
               <article className="position-card" key={item.ticker}>
                 <div className="position-topline">
                   <span className="market">{getDisplayTitle(item)}</span>

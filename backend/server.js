@@ -34,6 +34,7 @@ function setCorsHeaders(response) {
 
 function sendJson(response, statusCode, payload) {
   setCorsHeaders(response);
+  response.setHeader("Cache-Control", "no-store");
   response.writeHead(statusCode, { "Content-Type": "application/json" });
   response.end(JSON.stringify(payload));
 }

@@ -7,16 +7,20 @@ import {
   APP_SETTINGS_KEY,
   AppSettings,
   getAppSettings,
+  getKalshiComboTrackers,
   getKalshiWatchlist,
   getOverlayUiState,
+  KALSHI_COMBO_TRACKERS_KEY,
   KALSHI_WATCHLIST_KEY,
   OVERLAY_UI_KEY,
   OverlayUiState,
+  saveKalshiWatchlist,
   saveOverlayUiState
 } from "../shared/storage";
 import {
   KalshiBetMovementStatus,
   KalshiBetPerformance,
+  KalshiComboTracker,
   KalshiLiveContext,
   KalshiMarketSide,
   KalshiMarketSnapshot,
@@ -74,6 +78,10 @@ function formatPrice(value: number | null | undefined): string {
   return typeof value === "number" ? `${value}c` : "--";
 }
 
+function formatKalshiPriceAsPercent(value: number | null | undefined): string {
+  return typeof value === "number" ? `${Math.round(value)}%` : "--";
+}
+
 function formatVolume(value: number | null | undefined): string {
   if (typeof value !== "number") {
     return "--";
@@ -103,12 +111,44 @@ function getDisplayTitle(item: { displayTitle?: string | null; title: string }):
   return item.displayTitle || item.title;
 }
 
+function isResolvedMarket(market?: KalshiMarketSnapshot): boolean {
+  return Boolean(market?.isResolved);
+}
+
+function getLifecycleLabel(market?: KalshiMarketSnapshot): string {
+  if (!market) {
+    return "unavailable";
+  }
+
+  return market.lifecycleStatus ?? market.status ?? "unavailable";
+}
+
+function getResultLabel(market?: KalshiMarketSnapshot): string {
+  if (!market?.isResolved) {
+    return "";
+  }
+
+  if (!market.resultKnown || !market.winningSide) {
+    return "Result unknown";
+  }
+
+  return `${market.winningSide} won`;
+}
+
 function getCurrentSidePrice(
   side: KalshiMarketSide,
   market?: KalshiMarketSnapshot
 ): number | null {
   if (!market) {
     return null;
+  }
+
+  if (market.isResolved) {
+    if (!market.resultKnown || !market.winningSide) {
+      return null;
+    }
+
+    return market.winningSide === side ? 100 : 0;
   }
 
   if (side === "YES") {
@@ -130,6 +170,65 @@ function getCurrentSidePrice(
   return null;
 }
 
+function getSideProbability(
+  market: KalshiMarketSnapshot | undefined,
+  side: KalshiMarketSide
+): number | null {
+  return getCurrentSidePrice(side, market);
+}
+
+function getYesProbability(market?: KalshiMarketSnapshot): number | null {
+  if (!market) {
+    return null;
+  }
+
+  if (market.isResolved) {
+    if (!market.resultKnown || !market.winningSide) {
+      return null;
+    }
+
+    return market.winningSide === "YES" ? 100 : 0;
+  }
+
+  return market.yesAskCents ?? market.yesBidCents ?? market.lastPriceCents;
+}
+
+function getNoProbability(market?: KalshiMarketSnapshot): number | null {
+  if (!market) {
+    return null;
+  }
+
+  if (market.isResolved) {
+    if (!market.resultKnown || !market.winningSide) {
+      return null;
+    }
+
+    return market.winningSide === "NO" ? 100 : 0;
+  }
+
+  if (typeof market.noAskCents === "number") {
+    return market.noAskCents;
+  }
+
+  if (typeof market.noBidCents === "number") {
+    return market.noBidCents;
+  }
+
+  if (typeof market.lastPriceCents === "number") {
+    return Math.max(0, Math.min(100, 100 - market.lastPriceCents));
+  }
+
+  return null;
+}
+
+function getProbabilityMovement(
+  entryPrice: number,
+  currentSidePrice: number | null,
+  _side: KalshiMarketSide
+): number | null {
+  return typeof currentSidePrice === "number" ? currentSidePrice - entryPrice : null;
+}
+
 function getEffectiveContracts(item: KalshiWatchlistItem): number {
   if (item.contracts > 0) {
     return item.contracts;
@@ -146,16 +245,17 @@ function getBetPerformance(
   item: KalshiWatchlistItem,
   market?: KalshiMarketSnapshot
 ): KalshiBetPerformance {
-  const currentSidePriceCents = getCurrentSidePrice(item.userSide, market);
+  const currentSidePriceCents = getSideProbability(market, item.userSide);
   const effectiveContracts = getEffectiveContracts(item);
   const liveQuotePayout =
     item.amountRisked > 0 && typeof currentSidePriceCents === "number" && currentSidePriceCents > 0
       ? item.amountRisked / (currentSidePriceCents / 100)
       : null;
-  const movementCents =
-    typeof currentSidePriceCents === "number"
-      ? currentSidePriceCents - item.entryPriceCents
-      : null;
+  const movementCents = getProbabilityMovement(
+    item.entryPriceCents,
+    currentSidePriceCents,
+    item.userSide
+  );
   const movementStatus: KalshiBetMovementStatus =
     typeof movementCents !== "number"
       ? "unavailable"
@@ -212,6 +312,18 @@ function formatMovement(movement: number | null): string {
   return `${movement > 0 ? "+" : ""}${movement}c`;
 }
 
+function formatProbabilityMovement(movement: number | null): string {
+  if (typeof movement !== "number") {
+    return "--";
+  }
+
+  if (movement === 0) {
+    return "0%";
+  }
+
+  return `${movement > 0 ? "+" : ""}${Math.round(movement)}%`;
+}
+
 function formatMovementStatus(status: KalshiBetMovementStatus): string {
   switch (status) {
     case "favorable":
@@ -226,6 +338,10 @@ function formatMovementStatus(status: KalshiBetMovementStatus): string {
   }
 }
 
+function formatMovementStatusLower(status: KalshiBetMovementStatus): string {
+  return formatMovementStatus(status).toLowerCase();
+}
+
 function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): number {
   const current = getCurrentSidePrice(item.userSide, market);
   return typeof current === "number" ? Math.max(0, Math.min(100, current)) : 0;
@@ -233,9 +349,112 @@ function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapsh
 
 function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): string {
   const performance = getBetPerformance(item, market);
-  const liveSnippet = formatLiveContextSnippet(market?.liveContext);
+  const currentProbability = formatKalshiPriceAsPercent(performance.currentSidePriceCents);
+  const movement = formatProbabilityMovement(performance.movementCents);
+  const status = formatMovementStatusLower(performance.movementStatus);
 
-  return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${formatPrice(item.entryPriceCents)} -> ${formatPrice(performance.currentSidePriceCents)} | ${formatMovement(performance.movementCents)} | ${getEffectiveContracts(item).toFixed(2)}x | Live payout ${formatDollars(performance.estimatedPayout)} | ${formatMovementStatus(performance.movementStatus)}${liveSnippet ? ` | ${liveSnippet}` : ""}`;
+  return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${currentProbability} | You ${item.userSide} | ${movement} ${status}`;
+}
+
+type ComboStatus = "live" | "won" | "lost" | "incomplete data";
+
+interface ComboSummary {
+  estimatedProbability: number | null;
+  status: ComboStatus;
+  liveCount: number;
+  wonCount: number;
+  lostCount: number;
+  unavailableCount: number;
+}
+
+function getComboSummary(
+  combo: KalshiComboTracker,
+  marketsByTicker: Record<string, KalshiMarketSnapshot>
+): ComboSummary {
+  let probabilityProduct = 1;
+  let hasProbability = combo.legs.length > 0;
+  let liveCount = 0;
+  let wonCount = 0;
+  let lostCount = 0;
+  let unavailableCount = 0;
+
+  for (const leg of combo.legs) {
+    const market = marketsByTicker[leg.ticker];
+
+    if (!market) {
+      unavailableCount += 1;
+      hasProbability = false;
+      continue;
+    }
+
+    if (market.isResolved) {
+      if (!market.resultKnown || !market.winningSide) {
+        unavailableCount += 1;
+        hasProbability = false;
+      } else if (market.winningSide === leg.userSide) {
+        wonCount += 1;
+      } else {
+        lostCount += 1;
+        probabilityProduct = 0;
+      }
+
+      continue;
+    }
+
+    const probability = getSideProbability(market, leg.userSide);
+
+    if (typeof probability !== "number") {
+      unavailableCount += 1;
+      hasProbability = false;
+      continue;
+    }
+
+    liveCount += 1;
+    probabilityProduct *= probability / 100;
+  }
+
+  const status: ComboStatus =
+    lostCount > 0
+      ? "lost"
+      : unavailableCount > 0
+        ? "incomplete data"
+        : liveCount === 0 && combo.legs.length > 0
+          ? "won"
+          : "live";
+
+  return {
+    estimatedProbability: hasProbability ? probabilityProduct * 100 : null,
+    status,
+    liveCount,
+    wonCount,
+    lostCount,
+    unavailableCount
+  };
+}
+
+function formatComboProbability(value: number | null): string {
+  return typeof value === "number" ? `${value.toFixed(1)}%` : "--";
+}
+
+function comboTone(status: ComboStatus): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
+  switch (status) {
+    case "won":
+      return "is-good";
+    case "live":
+      return "is-live";
+    case "lost":
+      return "is-bad";
+    case "incomplete data":
+    default:
+      return "is-unavailable";
+  }
+}
+
+function renderComboTickerLabel(
+  combo: KalshiComboTracker,
+  summary: ComboSummary
+): string {
+  return `${truncateTitle(combo.name)} | Est. ${formatComboProbability(summary.estimatedProbability)} | ${summary.liveCount} live / ${summary.wonCount} won | status ${summary.status}`;
 }
 
 function formatLiveContextSnippet(liveContext?: KalshiLiveContext): string {
@@ -273,28 +492,19 @@ function statusTone(status?: string): "is-good" | "is-live" | "is-bad" | "is-una
       return "is-live";
     case "closed":
     case "settled":
+    case "finalized":
+    case "resolved":
       return "is-bad";
     default:
       return "is-unavailable";
   }
 }
 
-function getDataQualityLabel(overlayState: KalshiOverlayState | null): string {
-  if (!overlayState) {
-    return "Market data loading";
-  }
-
-  const marketStatus = overlayState.dataQuality.marketDataStatus;
-  const positionStatus =
-    overlayState.dataQuality.positionsStatus ?? overlayState.dataQuality.positionStatus;
-
-  return `Market data ${marketStatus} | Positions ${positionStatus}`;
-}
-
 export function OverlayApp() {
   const [uiState, setUiState] = useState<OverlayUiState | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
+  const [comboTrackers, setComboTrackers] = useState<KalshiComboTracker[]>([]);
   const [marketsByTicker, setMarketsByTicker] = useState<Record<string, KalshiMarketSnapshot>>({});
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
   const [overlayState, setOverlayState] = useState<KalshiOverlayState | null>(null);
@@ -309,12 +519,14 @@ export function OverlayApp() {
       getOverlayUiState(),
       getAppSettings(),
       getKalshiWatchlist(),
+      getKalshiComboTrackers(),
       backendApi.getBackendStatus().catch(() => null)
     ])
-      .then(([nextUiState, nextSettings, nextWatchlist, nextBackendStatus]) => {
+      .then(([nextUiState, nextSettings, nextWatchlist, nextComboTrackers, nextBackendStatus]) => {
         setUiState(nextUiState);
         setSettings(nextSettings);
         setWatchlist(nextWatchlist);
+        setComboTrackers(nextComboTrackers);
         setBackendStatus(nextBackendStatus);
       })
       .catch((error) => {
@@ -343,6 +555,10 @@ export function OverlayApp() {
 
       if (changes[KALSHI_WATCHLIST_KEY]?.newValue) {
         setWatchlist(changes[KALSHI_WATCHLIST_KEY].newValue as KalshiWatchlistItem[]);
+      }
+
+      if (changes[KALSHI_COMBO_TRACKERS_KEY]?.newValue) {
+        setComboTrackers(changes[KALSHI_COMBO_TRACKERS_KEY].newValue as KalshiComboTracker[]);
       }
     };
 
@@ -384,11 +600,18 @@ export function OverlayApp() {
         return;
       }
 
-      if (watchlist.length === 0) {
+      const visibleWatchlist = watchlist.filter((item) => !item.hidden && !item.archived);
+      const activeCombos = comboTrackers.filter((combo) => !combo.archived);
+      const watchedTickers = [
+        ...visibleWatchlist.map((item) => item.ticker),
+        ...activeCombos.flatMap((combo) => combo.legs.map((leg) => leg.ticker))
+      ].filter((ticker, index, allTickers) => allTickers.indexOf(ticker) === index);
+
+      if (watchedTickers.length === 0) {
         setMarketsByTicker({});
         setOverlayStatus({
           state: "ready",
-          message: "Add a market to your watchlist in the popup.",
+          message: "Add a market or combo to track in the popup.",
           lastUpdated: new Date().toISOString()
         });
         return;
@@ -403,7 +626,7 @@ export function OverlayApp() {
 
       try {
         const [nextOverlayState, nextBackendStatus] = await Promise.all([
-          backendApi.getOverlayState(watchlist.map((item) => item.ticker)),
+          backendApi.getOverlayState(watchedTickers),
           backendApi.getBackendStatus().catch(() => null)
         ]);
         const nextMarketsByTicker = Object.fromEntries(
@@ -459,27 +682,60 @@ export function OverlayApp() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [settings, watchlist]);
+  }, [settings, watchlist, comboTrackers]);
 
   async function updateUiState(next: OverlayUiState) {
     setUiState(next);
     await saveOverlayUiState(next);
   }
 
+  async function hideWatchedMarket(ticker: string) {
+    const now = new Date().toISOString();
+    const nextWatchlist = watchlist.map((item) =>
+      item.ticker === ticker
+        ? {
+            ...item,
+            hidden: true,
+            hiddenAt: now,
+            archived: true,
+            updatedAt: now
+          }
+        : item
+    );
+
+    setWatchlist(nextWatchlist);
+    await saveKalshiWatchlist(nextWatchlist);
+  }
+
   const watchedMarkets = useMemo(
     () =>
-      watchlist.map((item) => ({
-        item,
-        market: marketsByTicker[item.ticker]
-      })),
+      watchlist
+        .filter((item) => !item.hidden && !item.archived)
+        .map((item) => ({
+          item,
+          market: marketsByTicker[item.ticker]
+        })),
     [watchlist, marketsByTicker]
   );
+  const activeComboTrackers = useMemo(
+    () => comboTrackers.filter((combo) => !combo.archived),
+    [comboTrackers]
+  );
+  const comboSummaries = useMemo(
+    () =>
+      activeComboTrackers.map((combo) => ({
+        combo,
+        summary: getComboSummary(combo, marketsByTicker)
+      })),
+    [activeComboTrackers, marketsByTicker]
+  );
+  const activeWatchedMarkets = watchedMarkets.filter(({ market }) => !isResolvedMarket(market));
+  const finalizedWatchedMarkets = watchedMarkets.filter(({ market }) => isResolvedMarket(market));
   const watchCount = watchedMarkets.length;
   const totalPositionCount =
     overlayState?.positions.filter((position) => position.contracts > 0).length ??
     watchedMarkets.filter(({ market }) => market?.position && market.position.contracts > 0).length;
   const lastUpdated = formatUpdatedLabel(overlayStatus.lastUpdated);
-  const dataQualityLabel = getDataQualityLabel(overlayState);
 
   if (!uiState || !settings) {
     return null;
@@ -535,23 +791,44 @@ export function OverlayApp() {
           </div>
 
           <div className="klo-ticker-center">
-            {watchedMarkets.length === 0 ? (
-              <div className="klo-info-chip">Add a watched market in the popup to begin tracking.</div>
+            {activeWatchedMarkets.length === 0 && comboSummaries.length === 0 ? (
+              <div className="klo-info-chip">
+                {watchedMarkets.length === 0
+                  ? "Add a watched market or combo in the popup to begin tracking."
+                  : "No active watched markets. Settled markets are in card view."}
+              </div>
             ) : (
-              watchedMarkets.map(({ item, market }) => {
-                const performance = getBetPerformance(item, market);
-                const tone = getMovementTone(performance.movementCents);
+              <>
+                {activeWatchedMarkets.map(({ item, market }) => {
+                  const performance = getBetPerformance(item, market);
+                  const tone = getMovementTone(performance.movementCents);
 
-                return (
-                  <div className={`klo-bet-chip ${tone}`} key={item.ticker} title={item.ticker}>
-                    <span className="klo-chip-label">{renderTickerLabel(item, market)}</span>
+                  return (
+                    <div className={`klo-bet-chip ${tone}`} key={item.ticker} title={item.ticker}>
+                      <span className="klo-chip-label">{renderTickerLabel(item, market)}</span>
+                      <span
+                        className="klo-chip-progress"
+                        style={{ width: `${getProgressValue(item, market)}%` }}
+                      />
+                    </div>
+                  );
+                })}
+                {comboSummaries.map(({ combo, summary }) => (
+                  <div
+                    className={`klo-bet-chip ${comboTone(summary.status)}`}
+                    key={combo.id}
+                    title={combo.name}
+                  >
+                    <span className="klo-chip-label">{renderComboTickerLabel(combo, summary)}</span>
                     <span
                       className="klo-chip-progress"
-                      style={{ width: `${getProgressValue(item, market)}%` }}
+                      style={{
+                        width: `${Math.max(0, Math.min(100, summary.estimatedProbability ?? 0))}%`
+                      }}
                     />
                   </div>
-                );
-              })
+                ))}
+              </>
             )}
           </div>
 
@@ -568,13 +845,6 @@ export function OverlayApp() {
             >
               {toggleLabel}
             </button>
-            <span className="klo-info-chip klo-status-chip">
-              {totalPositionCount} read-only position{totalPositionCount === 1 ? "" : "s"}
-            </span>
-            {overlayStatus.message ? (
-              <span className="klo-info-chip klo-status-chip">{overlayStatus.message}</span>
-            ) : null}
-            <span className="klo-info-chip klo-status-chip">{dataQualityLabel}</span>
             <span className="klo-info-chip klo-updated-chip">Updated {lastUpdated}</span>
             <button
               type="button"
@@ -667,121 +937,202 @@ export function OverlayApp() {
 
           <section className="klo-card-section">
             <div className="klo-section-title">Watched Kalshi Markets</div>
-            {watchedMarkets.length === 0 ? (
+            {activeWatchedMarkets.length === 0 ? (
               <article className="klo-position-card">
-                <div className="klo-card-title">No watched markets yet</div>
+                <div className="klo-card-title">
+                  {watchCount === 0 ? "No watched markets yet" : "No active watched markets"}
+                </div>
                 <div className="klo-card-meta">
-                  <span>Open the popup and add a Kalshi market to your watchlist.</span>
+                  <span>
+                    {watchCount === 0
+                      ? "Open the popup and add a Kalshi market to your watchlist."
+                      : "Settled or finalized markets are shown in their own section below."}
+                  </span>
                 </div>
               </article>
             ) : (
-              watchedMarkets.map(({ item, market }) => {
+              activeWatchedMarkets.map(({ item, market }) => {
                 const performance = getBetPerformance(item, market);
                 const tone = getMovementTone(performance.movementCents);
                 const trackedPosition = market?.position ?? null;
+                const yesProbability = getYesProbability(market);
+                const noProbability = getNoProbability(market);
+                const currentProbability = getSideProbability(market, item.userSide);
+                const marketUpdatedAt = market?.dataQuality?.lastUpdated ?? market?.updatedAt;
+                const isMarketDataUnavailable = !market;
+                const isResolved = isResolvedMarket(market);
+                const resultLabel = getResultLabel(market);
 
                 return (
                   <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
-                    <div className="klo-card-meta klo-card-meta-top">
+                    <div className="klo-card-topline">
                       <div className="klo-card-title">{getDisplayTitle(item)}</div>
-                      <span className={`klo-status-badge ${statusTone(market?.status)}`}>
-                        {market?.status ?? "unavailable"}
+                      <span className={`klo-status-badge ${statusTone(getLifecycleLabel(market))}`}>
+                        {getLifecycleLabel(market)}
                       </span>
                     </div>
-                    <div className="klo-card-meta">
-                      <span>Ticker</span>
-                      <span>{item.ticker}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>YES bid / ask</span>
-                      <span>{formatPrice(market?.yesBidCents)} / {formatPrice(market?.yesAskCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>NO bid / ask</span>
-                      <span>{formatPrice(market?.noBidCents)} / {formatPrice(market?.noAskCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Last price</span>
-                      <span>{formatPrice(market?.lastPriceCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Your tracked side</span>
-                      <span>{item.userSide}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Entry price</span>
-                      <span>{formatPrice(item.entryPriceCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Current side price</span>
-                      <span>{formatPrice(performance.currentSidePriceCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Contracts</span>
-                      <span>{item.contracts}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Amount risked</span>
-                      <span>{formatDollars(performance.amountRisked)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Movement</span>
-                      <span>{formatMovement(performance.movementCents)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Approx value</span>
-                      <span>{formatDollars(performance.estimatedCurrentValue)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Approx P/L</span>
-                      <span>{formatDollars(performance.estimatedProfitLoss)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Live quote payout</span>
-                      <span>{formatDollars(performance.estimatedPayout)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Live quote profit</span>
-                      <span>{formatDollars(performance.estimatedMaxProfit)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Status</span>
-                      <span>{formatMovementStatus(performance.movementStatus)}</span>
-                    </div>
-                    {trackedPosition ? (
+
+                    {isMarketDataUnavailable ? (
+                      <div className="klo-simple-message">Market data unavailable</div>
+                    ) : isResolved && !market.resultKnown ? (
+                      <>
+                        <div className="klo-simple-message">Finalized - result unknown</div>
+                        <div className="klo-card-primary-grid">
+                          <div className="klo-primary-row">
+                            <span>Your side</span>
+                            <strong>{item.userSide}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Entry</span>
+                            <strong>{formatKalshiPriceAsPercent(item.entryPriceCents)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>P/L</span>
+                            <strong>--</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Last updated</span>
+                            <strong>{formatUpdatedLabel(marketUpdatedAt)}</strong>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="klo-probability-row">
+                          <div className="klo-probability-box">
+                            <span className="klo-prob-label">YES</span>
+                            <strong>{formatKalshiPriceAsPercent(yesProbability)}</strong>
+                          </div>
+                          <div className="klo-probability-box">
+                            <span className="klo-prob-label">NO</span>
+                            <strong>{formatKalshiPriceAsPercent(noProbability)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="klo-card-primary-grid">
+                          {isResolved ? (
+                            <div className="klo-primary-row">
+                              <span>Result</span>
+                              <strong>{resultLabel}</strong>
+                            </div>
+                          ) : null}
+                          <div className="klo-primary-row">
+                            <span>Your side</span>
+                            <strong>{item.userSide}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Entry</span>
+                            <strong>{formatKalshiPriceAsPercent(item.entryPriceCents)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>{isResolved ? "Final" : "Current"}</span>
+                            <strong>{formatKalshiPriceAsPercent(currentProbability)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Move</span>
+                            <strong className={`klo-move-pill ${tone}`}>
+                              {formatProbabilityMovement(performance.movementCents)} {formatMovementStatusLower(performance.movementStatus)}
+                            </strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Risked</span>
+                            <strong>{formatDollars(performance.amountRisked)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Est. value</span>
+                            <strong>{formatDollars(performance.estimatedCurrentValue)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Approx P/L</span>
+                            <strong>{formatDollars(performance.estimatedProfitLoss)}</strong>
+                          </div>
+                          <div className="klo-primary-row">
+                            <span>Last updated</span>
+                            <strong>{formatUpdatedLabel(marketUpdatedAt)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="klo-card-context-line">
+                          {isResolved
+                            ? `Result: ${resultLabel}`
+                            : market.liveContext?.available
+                            ? formatLiveContextCardText(market.liveContext)
+                            : "Game context unavailable"}
+                        </div>
+                      </>
+                    )}
+
+                    <details className="klo-details">
+                      <summary>Details</summary>
                       <div className="klo-card-meta">
-                        <span>Read-only position</span>
-                        <span>
-                          {trackedPosition.side} · {trackedPosition.contracts} @ {formatPrice(trackedPosition.entryPriceCents)}
-                        </span>
+                        <span>Ticker</span>
+                        <span>{item.ticker}</span>
                       </div>
-                    ) : null}
-                    <div className="klo-card-meta">
-                      <span>Volume</span>
-                      <span>{formatVolume(market?.volume)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Updated</span>
-                      <span>{formatUpdatedLabel(market?.dataQuality?.lastUpdated ?? market?.updatedAt)}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Market data</span>
-                      <span>{market?.dataQuality?.marketDataStatus ?? "unavailable"}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Position match</span>
-                      <span>{market?.dataQuality?.positionStatus ?? "unavailable"}</span>
-                    </div>
-                    <div className="klo-card-meta">
-                      <span>Live context</span>
-                      <span>{formatLiveContextCardText(market?.liveContext)}</span>
-                    </div>
-                    {item.notes ? (
                       <div className="klo-card-meta">
-                        <span>Notes</span>
-                        <span>{item.notes}</span>
+                        <span>Event ticker</span>
+                        <span>{item.eventTicker ?? market?.eventTicker ?? "--"}</span>
                       </div>
-                    ) : null}
+                      <div className="klo-card-meta">
+                        <span>YES bid / ask</span>
+                        <span>{formatPrice(market?.yesBidCents)} / {formatPrice(market?.yesAskCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>NO bid / ask</span>
+                        <span>{formatPrice(market?.noBidCents)} / {formatPrice(market?.noAskCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Last price</span>
+                        <span>{formatPrice(market?.lastPriceCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Raw movement</span>
+                        <span>{formatMovement(performance.movementCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Contracts</span>
+                        <span>{item.contracts}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Live quote payout</span>
+                        <span>{formatDollars(performance.estimatedPayout)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Live quote profit</span>
+                        <span>{formatDollars(performance.estimatedMaxProfit)}</span>
+                      </div>
+                      {trackedPosition ? (
+                        <div className="klo-card-meta">
+                          <span>Position match</span>
+                          <span>
+                            {trackedPosition.side} · {trackedPosition.contracts} @ {formatPrice(trackedPosition.entryPriceCents)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="klo-card-meta">
+                          <span>Position match</span>
+                          <span>{market?.dataQuality?.positionStatus ?? "unavailable"}</span>
+                        </div>
+                      )}
+                      <div className="klo-card-meta">
+                        <span>Market data</span>
+                        <span>{market?.dataQuality?.marketDataStatus ?? "unavailable"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Live context</span>
+                        <span>{formatLiveContextCardText(market?.liveContext)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Volume</span>
+                        <span>{formatVolume(market?.volume)}</span>
+                      </div>
+                      {item.notes ? (
+                        <div className="klo-card-meta">
+                          <span>Notes</span>
+                          <span>{item.notes}</span>
+                        </div>
+                      ) : null}
+                    </details>
+
                     <div className="klo-progress-track">
                       <div className="klo-progress-fill" style={{ width: `${getProgressValue(item, market)}%` }} />
                     </div>
@@ -790,6 +1141,208 @@ export function OverlayApp() {
               })
             )}
           </section>
+
+          {comboSummaries.length > 0 ? (
+            <section className="klo-card-section">
+              <div className="klo-section-title">Combo Trackers</div>
+              {comboSummaries.map(({ combo, summary }) => (
+                <article className={`klo-position-card klo-combo-card ${comboTone(summary.status)}`} key={combo.id}>
+                  <div className="klo-card-topline">
+                    <div className="klo-card-title">{combo.name}</div>
+                    <span className={`klo-status-badge ${comboTone(summary.status)}`}>
+                      {summary.status}
+                    </span>
+                  </div>
+                  <div className="klo-card-primary-grid">
+                    <div className="klo-primary-row">
+                      <span>Est. combo chance</span>
+                      <strong>{formatComboProbability(summary.estimatedProbability)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
+                      <span>Legs</span>
+                      <strong>
+                        {summary.liveCount} live / {summary.wonCount} won
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="klo-card-context-line">Estimated; markets may be correlated.</div>
+                  <div className="klo-combo-leg-list">
+                    {combo.legs.length === 0 ? (
+                      <div className="klo-simple-message">No legs added yet</div>
+                    ) : (
+                      combo.legs.map((leg) => {
+                        const market = marketsByTicker[leg.ticker];
+                        const currentProbability = getSideProbability(market, leg.userSide);
+                        const movement = getProbabilityMovement(
+                          leg.entryPriceCents,
+                          currentProbability,
+                          leg.userSide
+                        );
+                        const resolvedResult =
+                          market?.isResolved && market.resultKnown && market.winningSide
+                            ? market.winningSide === leg.userSide
+                              ? "won"
+                              : "lost"
+                            : market?.isResolved
+                              ? "result unknown"
+                              : getLifecycleLabel(market);
+                        const tone =
+                          resolvedResult === "won"
+                            ? "is-good"
+                            : resolvedResult === "lost"
+                              ? "is-bad"
+                              : getMovementTone(movement);
+
+                        return (
+                          <div className="klo-combo-leg-row" key={leg.id}>
+                            <span className={`klo-leg-dot ${tone}`} />
+                            <div className="klo-combo-leg-main">
+                              <strong>{leg.displayTitle || leg.title}</strong>
+                              <span>
+                                {leg.userSide} {formatKalshiPriceAsPercent(currentProbability)} | {formatProbabilityMovement(movement)} | {resolvedResult}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          {finalizedWatchedMarkets.length > 0 ? (
+            <section className="klo-card-section">
+              <div className="klo-section-title">Settled / Finalized markets</div>
+              {finalizedWatchedMarkets.map(({ item, market }) => {
+                const performance = getBetPerformance(item, market);
+                const tone = getMovementTone(performance.movementCents);
+                const yesProbability = getYesProbability(market);
+                const noProbability = getNoProbability(market);
+                const finalProbability = getSideProbability(market, item.userSide);
+                const resultLabel = getResultLabel(market);
+                const marketUpdatedAt = market?.dataQuality?.lastUpdated ?? market?.updatedAt;
+                const trackedPosition = market?.position ?? null;
+
+                return (
+                  <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={`finalized-${item.ticker}`}>
+                    <div className="klo-card-topline">
+                      <div className="klo-card-title">{getDisplayTitle(item)}</div>
+                      <div className="klo-card-action-cluster">
+                        <span className={`klo-status-badge ${statusTone(getLifecycleLabel(market))}`}>
+                          {getLifecycleLabel(market)}
+                        </span>
+                        <button
+                          type="button"
+                          className="klo-small-action"
+                          onClick={() => void hideWatchedMarket(item.ticker)}
+                        >
+                          Hide
+                        </button>
+                      </div>
+                    </div>
+
+                    {!market?.resultKnown ? (
+                      <div className="klo-simple-message">Finalized - result unknown</div>
+                    ) : (
+                      <div className="klo-probability-row">
+                        <div className="klo-probability-box">
+                          <span className="klo-prob-label">YES</span>
+                          <strong>{formatKalshiPriceAsPercent(yesProbability)}</strong>
+                        </div>
+                        <div className="klo-probability-box">
+                          <span className="klo-prob-label">NO</span>
+                          <strong>{formatKalshiPriceAsPercent(noProbability)}</strong>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="klo-card-primary-grid">
+                      <div className="klo-primary-row">
+                        <span>Result</span>
+                        <strong>{resultLabel}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Your side</span>
+                        <strong>{item.userSide}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Entry</span>
+                        <strong>{formatKalshiPriceAsPercent(item.entryPriceCents)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Final</span>
+                        <strong>{formatKalshiPriceAsPercent(finalProbability)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Move</span>
+                        <strong className={`klo-move-pill ${tone}`}>
+                          {formatProbabilityMovement(performance.movementCents)} {formatMovementStatusLower(performance.movementStatus)}
+                        </strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Approx P/L</span>
+                        <strong>{market?.resultKnown ? formatDollars(performance.estimatedProfitLoss) : "--"}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Risked</span>
+                        <strong>{formatDollars(performance.amountRisked)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Last updated</span>
+                        <strong>{formatUpdatedLabel(marketUpdatedAt)}</strong>
+                      </div>
+                    </div>
+
+                    <details className="klo-details">
+                      <summary>Details</summary>
+                      <div className="klo-card-meta">
+                        <span>Ticker</span>
+                        <span>{item.ticker}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Event ticker</span>
+                        <span>{item.eventTicker ?? market?.eventTicker ?? "--"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Winning side</span>
+                        <span>{market?.winningSide ?? "--"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>YES bid / ask</span>
+                        <span>{formatPrice(market?.yesBidCents)} / {formatPrice(market?.yesAskCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>NO bid / ask</span>
+                        <span>{formatPrice(market?.noBidCents)} / {formatPrice(market?.noAskCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Last price</span>
+                        <span>{formatPrice(market?.lastPriceCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Contracts</span>
+                        <span>{item.contracts}</span>
+                      </div>
+                      {trackedPosition ? (
+                        <div className="klo-card-meta">
+                          <span>Position match</span>
+                          <span>
+                            {trackedPosition.side} · {trackedPosition.contracts} @ {formatPrice(trackedPosition.entryPriceCents)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="klo-card-meta">
+                        <span>Market data</span>
+                        <span>{market?.dataQuality?.marketDataStatus ?? "finalized"}</span>
+                      </div>
+                    </details>
+                  </article>
+                );
+              })}
+            </section>
+          ) : null}
         </aside>
       )}
     </>

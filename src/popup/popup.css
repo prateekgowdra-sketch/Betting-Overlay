@@ -208,6 +208,15 @@ button {
   align-items: stretch;
 }
 
+.combo-create-row,
+.combo-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+
 .filter-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -218,6 +227,8 @@ button {
 
 .search-row input,
 .search-row select,
+.combo-create-row input,
+.combo-add-row select,
 .filter-row select {
   width: 100%;
   border: 1px solid rgba(138, 173, 210, 0.22);
@@ -230,6 +241,11 @@ button {
 }
 
 .filter-row select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.combo-add-row button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -256,6 +272,12 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.combo-leg-editor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(122, 167, 212, 0.12);
 }
 
 .stat-label,
