@@ -1,178 +1,154 @@
-# Betting Overlay
+# Kalshi Live Overlay
 
-Betting Overlay is a Chrome extension MVP that overlays live game context, prediction-market style positions, and manual parlay tracking directly on top of a webpage.
+Kalshi Live Overlay is a Chrome extension plus local backend for tracking Kalshi sports markets while you watch games or browse the web. It is built around read-only market tracking: search Kalshi markets, add watched markets, build combo slips, enter your side and entry price, and see live YES/NO probability movement in a compact overlay.
 
-## Problem
+The project does not trade, place orders, or expose buy/sell controls.
 
-Watching a game while tracking sports positions is fragmented. The stream is in one tab, stats are in another, and market context is often buried across dashboards. Betting Overlay brings those signals into a single lightweight viewing layer so a user can follow the game and their positions at the same time.
+## Current Product
 
-## Core Features
+The app is now a Kalshi-first market tracker instead of a generic sports-stat demo.
 
-- Chrome Manifest V3 extension that injects an overlay onto normal webpages
-- Two overlay modes:
-  - compact top ticker
-  - detailed card view
-- Auto-updating demo game for Knicks vs Cavaliers
-- Kalshi-style position cards with progress and P/L context
-- Player prop tracking cards and ticker chips
-- Manual parlay entry with multiple leg types
-- Odds movement tracking for parlays and legs
-- Persistent overlay state with `chrome.storage.local`
-- Local backend that owns all API access and future secret management
+Core flows:
 
-## Demo Mode
+- Search public Kalshi sports markets across supported sports
+- Add markets to a watchlist
+- Pick your side: `YES` or `NO`
+- Enter entry probability, contracts, amount risked, and notes
+- Track current probability, movement, estimated value, and approximate P/L
+- Build combo slips with one shared amount risked
+- Show combo estimated probability, payout, and profit
+- Display active markets in ticker or card overlay views
+- Separate active, settled, and archived tracking items
+- Match read-only Kalshi account positions when credentials are configured
+- Keep finalized/settled markets out of the live ticker by default
 
-The default experience is a mock/demo mode designed to simulate the final product flow without requiring live third-party APIs.
+## Overlay Views
 
-- The extension polls the backend every 15 seconds
-- The backend exposes multiple selectable mock games through `GET /api/live/games/today`
-- The current demo includes:
-  - Knicks vs Cavaliers
-  - Thunder vs Spurs
-- Score, quarter, clock, and selected player stats update automatically
-- Mock Kalshi-style market values update with the game state
+Ticker mode is intentionally compact:
 
-## Manual Parlay Tracking
-
-Manual mode lets a user enter and persist their own parlay without connecting a sportsbook or broker account.
-
-Supported leg types:
-- player prop
-- team moneyline
-- spread
-- game total
-- prediction-market / Kalshi-style leg
-
-For prediction-market style legs, the user can optionally add a Kalshi market ticker so the backend can look up read-only market pricing when configured.
-
-The popup also stores a `selectedGameId`, so both demo mode and manual parlay mode can follow the currently chosen game instead of a single hardcoded matchup.
-
-## Odds Movement Tracking
-
-The overlay tracks odds movement for manually entered parlays and legs.
-
-- American odds formatting
-- implied probability conversion
-- chance direction
-- payout better/worse direction
-- original odds to current odds comparison
-
-## Mock Live Sports Data
-
-Today’s MVP still relies on mock player stats and a simulated game timeline as the primary demo source. This keeps the repo stable for demos and portfolio presentation while preserving the final architecture:
-
-`Chrome Extension -> Local Backend -> Sports Data Provider -> Kalshi Provider`
-
-## Future Sports API Integration
-
-The backend already supports a provider-based sports data layer.
-
-- default: `mock`
-- optional Kalshi-first provider: `kalshi`
-- optional live game + player stats provider: `balldontlie`
-- optional live scores provider: `the_odds_api`
-- optional player-stat oriented provider path: `sportsdataio`
-
-At the moment:
-- `mock` powers the full demo experience
-- `kalshi` powers a Kalshi-first mode using market discovery, YES/NO prices, watched markets, and read-only positions without requiring a sports stats API
-- `balldontlie` is wired for real NBA games and real player game stats using a backend-only API key
-- `the_odds_api` is wired for normalized game-level score data
-- `sportsdataio` is wired as the player-stat capable provider path for real NBA box score data
-
-Player props require a player-stat capable provider. In this codebase:
-- `kalshi` can run the overlay in a Kalshi-first mode with market discovery, sports market prices, watched markets, and read-only positions
-- `balldontlie` can supply real NBA game lists, game state, and player game stats through the local backend
-- `the_odds_api` can support real game selection and scores
-- `sportsdataio` is the provider intended to supply real player stats for points, rebounds, assists, threes, steals, blocks, and turnovers
-- if a real provider key is missing or the API fails, the backend falls back safely instead of crashing the extension
-
-To run in Kalshi-first mode without BALLDONTLIE:
-
-```bash
-SPORTS_DATA_PROVIDER=kalshi
-KALSHI_MODE=real
-KALSHI_ENV=demo
-KALSHI_API_KEY_ID=your_key_id
-KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
+```text
+Rangers win | YES 72% | You YES | +8% favorable
+Spurs + Castle | Est. 31% | Pays ~$161.29 | Closing soon
 ```
 
-What this currently enables:
-- Kalshi-backed game discovery from sports team markets
-- Kalshi matchup shells for the overlay game selector
-- YES/NO pricing through Kalshi market lookups
-- watched markets and read-only positions without a sports stats API
-- clean player-stat unavailable states instead of breaking the overlay
-- no BALLDONTLIE dependency when `SPORTS_DATA_PROVIDER=kalshi`
+Card mode shows the fuller tracking view:
 
-BALLDONTLIE is optional in this mode. If you leave `BALLDONTLIE_API_KEY` empty, the app can still run using Kalshi market data plus mock fallback where needed.
+- market title
+- live/finalized status
+- YES and NO probability
+- your side
+- entry probability
+- current/final probability
+- movement
+- amount risked
+- estimated value
+- approximate P/L
+- last updated time
+- optional details section for tickers, raw bid/ask, contracts, position match, and market data status
 
-To run with BALLDONTLIE:
+## Combo Slip Tracking
 
-```bash
-SPORTS_DATA_PROVIDER=balldontlie
-BALLDONTLIE_API_KEY=your_key_here
+The popup includes a combo builder that behaves like a lightweight betting slip:
+
+1. Search a market leg
+2. Add `YES` or `NO`
+3. Set one combo amount risked
+4. Review estimated chance, payout, and profit
+5. Save the combo
+
+Combo estimates are probability-based:
+
+```text
+estimatedComboProbability = leg1Probability * leg2Probability * ...
+estimatedPayout = amountRisked / estimatedComboProbability
+estimatedProfit = estimatedPayout - amountRisked
 ```
 
-What this currently enables:
-- real NBA games in `GET /api/live/games/today`
-- a useful date window when there are no NBA games on the current date
-- normalized real game state from the backend for a selected game
-- normalized player game stats for points, rebounds, assists, threes made, steals, blocks, and turnovers
-- backend-only key handling through the `Authorization` header
+Settled combo behavior:
 
-To run with The Odds API:
+- finalized won leg counts as `100%`
+- finalized lost leg makes the combo `lost`
+- unavailable leg makes the combo `incomplete data`
 
-```bash
-SPORTS_DATA_PROVIDER=the_odds_api
-THE_ODDS_SPORT_KEY=basketball_nba
-THE_ODDS_API_KEY=your_key_here
+Combo payout estimates are informational only. Markets may be correlated.
+
+## Search
+
+The backend includes Kalshi sports-market search helpers for common team, player, and stat queries.
+
+Examples:
+
+- `knicks`
+- `knicks spurs`
+- `spurs win`
+- `stephon castle assists`
+- `castle 6 assists`
+- `rangers cardinals`
+- `yankees`
+
+Search supports query expansion and relevance scoring for aliases, matchup teams, open markets, volume, and close time. Generic terms like `yes`, `no`, `over`, `under`, `game`, and `win` are not enough by themselves to create random matches.
+
+Comma-separated combo searches are split into separate result groups:
+
+```text
+spurs win, stephon castle assists
 ```
 
-What this currently enables:
-- real NBA games in `GET /api/live/games/today`
-- normalized game state from the backend for a selected real game
-- safe player-stats fallback with an unavailable reason when the provider does not supply box score data
+The popup groups results as:
 
-To run with SportsDataIO:
+- Best matches
+- Related markets
+- Weak matches hidden by default
 
-```bash
-SPORTS_DATA_PROVIDER=sportsdataio
-SPORTSDATAIO_API_KEY=your_key_here
+## Settled Markets
+
+Finalized binary markets are handled separately from active markets.
+
+Rules:
+
+- An active/open market shows tradable YES/NO probabilities.
+- A settled YES result shows `YES 100%` and `NO 0%`.
+- A settled NO result shows `YES 0%` and `NO 100%`.
+- If the result is unknown, the UI shows `Finalized - result unknown`.
+- The live ticker hides settled and archived items by default.
+- Card view can show settled/finalized markets in a separate section.
+
+This avoids the invalid `YES 100% / NO 100%` state.
+
+## Read-Only Kalshi Account Data
+
+The backend has read-only Kalshi account support for:
+
+- auth health
+- balance
+- positions
+- public market data
+- unified overlay state
+
+Useful routes:
+
+```text
+GET /api/kalshi/auth/health
+GET /api/kalshi/balance
+GET /api/kalshi/positions
+GET /api/overlay/state
 ```
 
-What this currently enables:
-- real NBA games from SportsDataIO schedules
-- normalized real game state
-- real player box-score stats when available through the SportsDataIO box score feed
-- safe fallback or unavailable player-stat state when the API key is missing or a request fails
+Positions are matched to watched markets by ticker. The app still works without real account credentials because manual tracking data is stored locally.
 
-## Future Read-Only Kalshi Integration
+## Safety
 
-The backend now includes a read-only Kalshi client layer with:
+This repo is read-only with respect to Kalshi and external accounts.
 
-- balance lookup
-- positions lookup
-- market lookup
-- market list support in the client
-- backend-only RSA-PSS request signing for authenticated REST reads
+Not implemented:
 
-Recommended local env for demo-mode Kalshi auth:
+- order placement
+- trading
+- buy buttons
+- sell buttons
+- sportsbook bet submission
 
-```bash
-KALSHI_MODE=mock
-KALSHI_ENV=demo
-KALSHI_API_KEY_ID=
-KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
-KALSHI_ENABLE_WEBSOCKET=false
-```
-
-Important:
-- mock Kalshi mode is still the default
-- no trading is implemented
-- no order placement exists
-- no buy/sell actions are exposed
-- Kalshi secrets belong only in `backend/.env` and `backend/secrets/`
+Secrets must stay backend-only.
 
 ## Tech Stack
 
@@ -180,36 +156,27 @@ Important:
 - React
 - TypeScript
 - Vite
-- Node.js
-- Local JSON-backed backend services
+- Node.js backend
+- Node test runner
+- `chrome.storage.local` for extension-side state
 
 ## Architecture
 
-Text diagram:
-
 ```text
-Chrome Extension UI
-  -> Local Backend API
-    -> Mock Sports Provider or Future Live Sports Provider
-    -> Mock Kalshi Provider or Future Read-Only Kalshi Provider
+Chrome extension popup
+  -> watchlist, combo builder, settings
+
+Content overlay
+  -> ticker/card UI
+  -> polls unified overlay state
+
+Local backend
+  -> Kalshi public market data
+  -> optional read-only Kalshi account data
+  -> search normalization and market lifecycle handling
 ```
 
-Responsibilities:
-
-1. Chrome Extension UI
-   - renders the overlay
-   - polls backend endpoints
-   - stores lightweight UI state
-   - contains no API secrets
-
-2. Backend API
-   - serves live game state
-   - serves Kalshi-style positions and market data
-   - handles provider selection
-   - owns API credential handling
-
-3. Shared Types
-   - defines common data contracts used across the UI and backend mappings
+The extension never receives Kalshi private keys. Authenticated Kalshi reads are signed on the backend.
 
 ## Local Setup
 
@@ -231,96 +198,103 @@ Run tests:
 npm test
 ```
 
-## Backend Setup
-
-Create a backend env file:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
 Start the backend:
 
 ```bash
 npm run backend
 ```
 
-You can also start it from inside the backend folder:
+The backend runs on:
 
-```bash
-cd backend
-node server.js
+```text
+http://localhost:3001
 ```
 
-`backend/.env` is loaded relative to `backend/server.js`, so the same env file works in either launch style.
-
-Default safe configuration:
-
-```bash
-SPORTS_DATA_PROVIDER=mock
-BALLDONTLIE_API_KEY=
-THE_ODDS_SPORT_KEY=basketball_nba
-THE_ODDS_API_KEY=
-SPORTSDATAIO_API_KEY=
-KALSHI_MODE=mock
-KALSHI_ENV=demo
-KALSHI_API_KEY_ID=
-KALSHI_PRIVATE_KEY_PATH=
-```
-
-Valid `SPORTS_DATA_PROVIDER` values are:
-- `mock`
-- `kalshi`
-- `balldontlie`
-- `the_odds_api`
-- `sportsdataio`
-
-When the backend starts, it logs only:
-- the selected sports data provider
-- whether `BALLDONTLIE_API_KEY` exists: `true` or `false`
-
-It never prints the key itself.
-
-Available mock games route:
-
-```bash
-curl http://localhost:3001/api/live/games/today
-```
-
-## Load the Chrome Extension
+Load the extension:
 
 1. Open `chrome://extensions`
 2. Turn on `Developer Mode`
 3. Click `Load unpacked`
 4. Select the `dist` folder
+5. Keep the backend running locally
 
-Then open a normal webpage such as `https://example.com` and keep the backend running on `http://localhost:3001`.
+## Environment Variables
 
-## Security and Safety
+Create a local backend env file:
 
-- API keys stay backend-only
-- private keys stay backend-only
-- `BALLDONTLIE_API_KEY` belongs only in `backend/.env` when you choose BALLDONTLIE
-- the Chrome extension does not receive Kalshi credentials
-- Kalshi-first mode can run without any sports stats API key
-- mock mode remains the default for both sports data and Kalshi data
-- this project is read-only with respect to external accounts
+```bash
+cp backend/.env.example backend/.env
+```
+
+Safe local defaults:
+
+```bash
+SPORTS_DATA_PROVIDER=kalshi
+KALSHI_MODE=mock
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=
+KALSHI_PRIVATE_KEY_PATH=
+KALSHI_ENABLE_WEBSOCKET=false
+BALLDONTLIE_API_KEY=
+THE_ODDS_SPORT_KEY=basketball_nba
+THE_ODDS_API_KEY=
+SPORTSDATAIO_API_KEY=
+```
+
+Read-only Kalshi configuration:
+
+```bash
+SPORTS_DATA_PROVIDER=kalshi
+KALSHI_MODE=real
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=your_key_id
+KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
+KALSHI_ENABLE_WEBSOCKET=false
+```
+
+Keep real values only in `backend/.env`, Vercel environment variables, or a secure secret manager.
+
+## Vercel Notes
+
+This repository can be published as source, but the Chrome extension still expects a backend API. For deployment, configure environment variables in Vercel instead of committing them.
+
+Do not commit:
+
+- `backend/.env`
+- `backend/secrets/`
+- private key files
+- `.env`
+- `dist/`
+- `node_modules/`
+- `.DS_Store`
+
+Current `.gitignore` covers these paths.
+
+## Security Checklist
+
+- API keys stay out of the extension bundle.
+- Kalshi private keys stay in `backend/secrets/` or platform secrets.
+- `backend/.env` is ignored.
+- `backend/secrets/` is ignored.
+- `dist/` and `node_modules/` are ignored.
+- The backend logs whether credentials exist, not their values.
+- The project uses read-only Kalshi account access only.
+
+## Useful Commands
+
+```bash
+npm run build
+npm test
+npm run backend
+git status --short --ignored
+```
 
 ## Disclaimer
 
-This project is a software demo and portfolio project.
+This is a software project for market-tracking UI experimentation.
 
 - It is not financial advice.
 - It is not betting advice.
 - It does not place trades.
 - It does not submit sportsbook bets.
 - It is not affiliated with, endorsed by, or sponsored by Kalshi.
-
-## Roadmap
-
-- Add a real player-stats provider to replace mock player tracking
-- Improve market-to-player matching and normalization
-- Support multiple saved manual parlays
-- Add richer read-only Kalshi market syncing in the overlay
-- Improve stream-aware overlay positioning and responsiveness
-- Add clearer empty/error/reset states for demo workflows
