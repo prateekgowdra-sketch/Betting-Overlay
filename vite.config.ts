@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { defineConfig, type Plugin } from "vite";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
+const apiBaseUrl = process.env.VITE_API_BASE_URL ?? "";
 
 function contentScriptBundlePlugin(): Plugin {
   return {
@@ -23,6 +24,9 @@ function contentScriptBundlePlugin(): Plugin {
         loader: {
           ".css": "text"
         },
+        define: {
+          __API_BASE_URL__: JSON.stringify(apiBaseUrl)
+        },
         minify: true
       });
     }
@@ -30,6 +34,9 @@ function contentScriptBundlePlugin(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __API_BASE_URL__: JSON.stringify(apiBaseUrl)
+  },
   plugins: [react(), contentScriptBundlePlugin()],
   build: {
     outDir: "dist",

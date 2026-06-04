@@ -10,6 +10,7 @@ import {
   KalshiOverlayState,
   KalshiSportFilterOption
 } from "../shared/types";
+import { buildApiUrl } from "./apiBase";
 
 export interface SupportedGame {
   id: string;
@@ -87,7 +88,6 @@ export interface KalshiAccountPositionsResponse {
   positions: NonNullable<KalshiMarketSnapshot["position"]>[];
 }
 
-const API_BASE_URL = "http://localhost:3001/api";
 const FALLBACK_GAMES: SupportedGame[] = [
   {
     id: "knicks-cavs-demo",
@@ -175,7 +175,7 @@ class BackendApi {
   }
 
   async getBackendStatus(): Promise<BackendStatusResponse> {
-    const response = await fetch("http://localhost:3001/health");
+    const response = await fetch(buildApiUrl("/health"));
 
     if (!response.ok) {
       throw new Error("Failed to fetch backend status");
@@ -185,7 +185,7 @@ class BackendApi {
   }
 
   async getOverlayState(tickers: string[] = []): Promise<KalshiOverlayState> {
-    const url = new URL(`${API_BASE_URL}/overlay/state`);
+    const url = new URL(buildApiUrl("/overlay/state"), globalThis.location?.origin);
 
     if (tickers.length > 0) {
       url.searchParams.set("tickers", tickers.join(","));
@@ -201,7 +201,7 @@ class BackendApi {
   }
 
   async getKalshiAuthHealth(): Promise<KalshiAuthHealthResponse> {
-    const response = await fetch(`${API_BASE_URL}/kalshi/auth/health`);
+    const response = await fetch(buildApiUrl("/kalshi/auth/health"));
 
     if (!response.ok) {
       throw new Error("Failed to fetch Kalshi auth health");
@@ -211,7 +211,7 @@ class BackendApi {
   }
 
   async getKalshiAccountPositions(): Promise<KalshiAccountPositionsResponse> {
-    const response = await fetch(`${API_BASE_URL}/kalshi/positions`);
+    const response = await fetch(buildApiUrl("/kalshi/positions"));
 
     if (!response.ok) {
       throw new Error("Failed to fetch Kalshi account positions");
@@ -257,7 +257,7 @@ class BackendApi {
     tickers?: string[];
     query?: string;
   } = {}): Promise<KalshiMarketsResponse> {
-    const url = new URL(`${API_BASE_URL}/kalshi/markets`);
+    const url = new URL(buildApiUrl("/kalshi/markets"), globalThis.location?.origin);
 
     if (typeof params.limit === "number") {
       url.searchParams.set("limit", String(params.limit));
@@ -289,7 +289,7 @@ class BackendApi {
   }
 
   async getKalshiSportsFilters(): Promise<KalshiSportsFiltersResponse> {
-    const response = await fetch(`${API_BASE_URL}/kalshi/sports/filters`);
+    const response = await fetch(buildApiUrl("/kalshi/sports/filters"));
 
     if (!response.ok) {
       throw new Error("Failed to fetch Kalshi sports filters");
@@ -307,7 +307,7 @@ class BackendApi {
     limit?: number;
     cursor?: string;
   } = {}): Promise<KalshiMarketsResponse> {
-    const url = new URL(`${API_BASE_URL}/kalshi/sports/markets`);
+    const url = new URL(buildApiUrl("/kalshi/sports/markets"), globalThis.location?.origin);
 
     if (params.sport) {
       url.searchParams.set("sport", params.sport);
@@ -357,7 +357,7 @@ class BackendApi {
 
   async getKalshiMarketOrderbook(ticker: string): Promise<KalshiOrderbookResponse> {
     const response = await fetch(
-      `${API_BASE_URL}/kalshi/market/${encodeURIComponent(ticker)}/orderbook`
+      buildApiUrl(`/kalshi/market/${encodeURIComponent(ticker)}/orderbook`)
     );
 
     if (!response.ok) {
@@ -368,7 +368,7 @@ class BackendApi {
   }
 
   private buildUrl(path: string): string {
-    const url = new URL(`${API_BASE_URL}${path}`);
+    const url = new URL(buildApiUrl(path), globalThis.location?.origin);
     url.searchParams.set("demoMode", String(this.demoMode));
     return url.toString();
   }

@@ -4,13 +4,14 @@ import {
   ManualParlay,
   OverlayDataMode
 } from "./types";
+import { buildApiUrl } from "../services/apiBase";
 
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
 export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
 export const KALSHI_WATCHLIST_KEY = "kalshi-live-overlay-watchlist";
 export const KALSHI_COMBO_TRACKERS_KEY = "kalshi-live-overlay-combo-trackers";
-const PARLAY_API_URL = "http://localhost:3001/api/parlays";
+const PARLAY_API_PATH = "/parlays";
 const OVERLAY_UI_VERSION = 4;
 
 export interface OverlayUiState {
@@ -118,7 +119,7 @@ async function saveLocalManualParlay(parlay: ManualParlay): Promise<ManualParlay
 }
 
 async function listBackendParlays(): Promise<ManualParlay[]> {
-  const response = await fetch(PARLAY_API_URL);
+  const response = await fetch(buildApiUrl(PARLAY_API_PATH));
 
   if (!response.ok) {
     throw new Error("Backend parlay list unavailable");
@@ -128,7 +129,7 @@ async function listBackendParlays(): Promise<ManualParlay[]> {
 }
 
 async function createBackendParlay(parlay: ManualParlay): Promise<ManualParlay> {
-  const response = await fetch(PARLAY_API_URL, {
+  const response = await fetch(buildApiUrl(PARLAY_API_PATH), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -144,7 +145,7 @@ async function createBackendParlay(parlay: ManualParlay): Promise<ManualParlay> 
 }
 
 async function updateBackendParlay(parlay: ManualParlay): Promise<ManualParlay> {
-  const response = await fetch(`${PARLAY_API_URL}/${encodeURIComponent(parlay.id)}`, {
+  const response = await fetch(buildApiUrl(`${PARLAY_API_PATH}/${encodeURIComponent(parlay.id)}`), {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"

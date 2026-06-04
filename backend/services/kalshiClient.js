@@ -62,6 +62,10 @@ class KalshiClient {
     return process.env.KALSHI_PRIVATE_KEY_PATH?.trim() || "";
   }
 
+  getPrivateKeyFromEnv() {
+    return process.env.KALSHI_PRIVATE_KEY?.replace(/\\n/g, "\n").trim() || "";
+  }
+
   getResolvedPrivateKeyPath() {
     const privateKeyPath = this.getPrivateKeyPath();
 
@@ -81,7 +85,7 @@ class KalshiClient {
   }
 
   hasPrivateKeyPath() {
-    return Boolean(this.getResolvedPrivateKeyPath());
+    return Boolean(this.getResolvedPrivateKeyPath() || this.getPrivateKeyFromEnv());
   }
 
   hasCredentials() {
@@ -89,6 +93,12 @@ class KalshiClient {
   }
 
   getPrivateKeyPem() {
+    const privateKeyFromEnv = this.getPrivateKeyFromEnv();
+
+    if (privateKeyFromEnv) {
+      return privateKeyFromEnv;
+    }
+
     const privateKeyPath = this.getResolvedPrivateKeyPath();
 
     if (!privateKeyPath || !existsSync(privateKeyPath)) {
@@ -112,7 +122,7 @@ class KalshiClient {
     }
 
     console.warn(
-      "[kalshi] Missing KALSHI_API_KEY_ID or readable KALSHI_PRIVATE_KEY_PATH. Falling back to mock Kalshi mode."
+      "[kalshi] Missing KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY, or readable KALSHI_PRIVATE_KEY_PATH. Falling back to mock Kalshi mode."
     );
     this.loggedCredentialWarning = true;
   }

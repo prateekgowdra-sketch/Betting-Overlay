@@ -733,7 +733,7 @@ export function OverlayApp() {
         const message =
           error instanceof Error
             ? error.message
-            : "Unable to reach the backend. Make sure localhost:3001 is running.";
+            : "Unable to reach the backend API. Check that the API is deployed or running locally.";
 
         setOverlayState((current) =>
           current

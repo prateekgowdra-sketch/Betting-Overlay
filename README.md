@@ -233,6 +233,7 @@ SPORTS_DATA_PROVIDER=kalshi
 KALSHI_MODE=mock
 KALSHI_ENV=demo
 KALSHI_API_KEY_ID=
+KALSHI_PRIVATE_KEY=
 KALSHI_PRIVATE_KEY_PATH=
 KALSHI_ENABLE_WEBSOCKET=false
 BALLDONTLIE_API_KEY=
@@ -248,15 +249,30 @@ SPORTS_DATA_PROVIDER=kalshi
 KALSHI_MODE=real
 KALSHI_ENV=demo
 KALSHI_API_KEY_ID=your_key_id
+KALSHI_PRIVATE_KEY=
 KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi.key
 KALSHI_ENABLE_WEBSOCKET=false
 ```
+
+For Vercel, prefer `KALSHI_PRIVATE_KEY` instead of `KALSHI_PRIVATE_KEY_PATH`. Paste the private key into the Vercel environment variable with newline characters preserved, or with `\n` escapes.
 
 Keep real values only in `backend/.env`, Vercel environment variables, or a secure secret manager.
 
 ## Vercel Notes
 
-This repository can be published as source, but the Chrome extension still expects a backend API. For deployment, configure environment variables in Vercel instead of committing them.
+This repository now includes Vercel API routes under `api/`, which wrap the existing backend handler. On Vercel, the frontend calls same-origin `/api` routes instead of `localhost:3001`.
+
+Recommended Vercel project settings:
+
+```text
+Framework Preset: Vite
+Root Directory: ./
+Build Command: npm run build
+Output Directory: dist
+Install Command: npm install
+```
+
+Configure secrets in Vercel environment variables instead of committing them.
 
 Do not commit:
 

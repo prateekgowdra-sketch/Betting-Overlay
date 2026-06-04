@@ -1,5 +1,6 @@
 import { createServer } from "http";
 import { dirname, join } from "path";
+import { pathToFileURL } from "url";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { kalshiClient } from "./services/kalshiClient.js";
@@ -84,7 +85,7 @@ const AVAILABLE_ROUTES = [
   "DELETE /api/parlays/:id"
 ];
 
-const server = createServer(async (request, response) => {
+export async function handleBackendRequest(request, response) {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
 
   if (request.method === "OPTIONS") {
@@ -94,7 +95,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/") {
+  if (request.method === "GET" && ["/", "/api"].includes(url.pathname)) {
     sendJson(response, 200, {
       name: "Kalshi Live Overlay API",
       status: "running",
@@ -108,7 +109,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/health") {
+  if (request.method === "GET" && ["/health", "/api/health"].includes(url.pathname)) {
     sendJson(response, 200, {
       status: "ok",
       message: "Backend running",
@@ -397,17 +398,21 @@ const server = createServer(async (request, response) => {
   }
 
   sendJson(response, 404, { error: "Not found" });
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Kalshi Live Overlay backend listening on http://localhost:${PORT}`);
-  console.log("Available routes:");
-  for (const route of AVAILABLE_ROUTES) {
-    console.log(
-      `- http://localhost:${PORT}${route
-        .slice(4)
-        .replace(/:gameId/g, "knicks-cavs-demo")
-        .replace(/:ticker/g, "KXO-NYK-CLE-MONEYLINE")}`
-    );
-  }
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const server = createServer(handleBackendRequest);
+
+  server.listen(PORT, () => {
+    console.log(`Kalshi Live Overlay backend listening on http://localhost:${PORT}`);
+    console.log("Available routes:");
+    for (const route of AVAILABLE_ROUTES) {
+      console.log(
+        `- http://localhost:${PORT}${route
+          .slice(4)
+          .replace(/:gameId/g, "knicks-cavs-demo")
+          .replace(/:ticker/g, "KXO-NYK-CLE-MONEYLINE")}`
+      );
+    }
+  });
+}
