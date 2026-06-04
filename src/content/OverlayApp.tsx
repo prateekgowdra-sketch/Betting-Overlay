@@ -447,6 +447,78 @@ function formatComboProbability(value: number | null): string {
   return typeof value === "number" ? `${value.toFixed(1)}%` : "--";
 }
 
+function isClosingSoon(market?: KalshiMarketSnapshot): boolean {
+  if (!market?.closeTime || market.isResolved) {
+    return false;
+  }
+
+  const closeTime = new Date(market.closeTime).getTime();
+
+  if (!Number.isFinite(closeTime)) {
+    return false;
+  }
+
+  const minutesUntilClose = (closeTime - Date.now()) / 60000;
+  return minutesUntilClose >= 0 && minutesUntilClose <= 30;
+}
+
+function isMarketStale(market?: KalshiMarketSnapshot): boolean {
+  const updatedAt = market?.dataQuality?.lastUpdated ?? market?.updatedAt;
+
+  if (!updatedAt || market?.isResolved) {
+    return false;
+  }
+
+  const updatedTime = new Date(updatedAt).getTime();
+  return Number.isFinite(updatedTime) && Date.now() - updatedTime > 60000;
+}
+
+function getMarketAlerts(
+  market: KalshiMarketSnapshot | undefined,
+  performance: KalshiBetPerformance,
+  userSide: KalshiMarketSide
+): string[] {
+  const alerts: string[] = [];
+
+  if (typeof performance.movementCents === "number" && Math.abs(performance.movementCents) >= 10) {
+    alerts.push(performance.movementCents > 0 ? "Big move" : "Dropping");
+  }
+
+  if (isClosingSoon(market)) {
+    alerts.push("Closing soon");
+  }
+
+  if (isMarketStale(market)) {
+    alerts.push("Stale");
+  }
+
+  if (market?.isResolved && market.resultKnown && market.winningSide) {
+    alerts.push(market.winningSide === userSide ? "Won" : "Lost");
+  }
+
+  return alerts;
+}
+
+function getComboAlerts(combo: KalshiComboTracker, summary: ComboSummary): string[] {
+  const alerts: string[] = [];
+
+  if (summary.status === "won") alerts.push("Won");
+  if (summary.status === "lost") alerts.push("Lost");
+  if (summary.status === "incomplete data") alerts.push("Stale");
+
+  const entryProduct = combo.legs.reduce((product, leg) => product * (leg.entryPriceCents / 100), 1) * 100;
+
+  if (typeof summary.estimatedProbability === "number" && combo.legs.length > 0) {
+    const movement = summary.estimatedProbability - entryProduct;
+
+    if (Math.abs(movement) >= 10) {
+      alerts.push(movement > 0 ? "Big move" : "Dropping");
+    }
+  }
+
+  return alerts;
+}
+
 function comboTone(status: ComboStatus): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
   switch (status) {
     case "won":
@@ -465,7 +537,8 @@ function renderComboTickerLabel(
   combo: KalshiComboTracker,
   summary: ComboSummary
 ): string {
-  return `${truncateTitle(combo.name)} | Risk ${formatDollars(combo.amountRisked)} | Est. ${formatComboProbability(summary.estimatedProbability)} | Pays ~${formatDollars(summary.estimatedPayout)} | ${summary.status}`;
+  const primaryAlert = getComboAlerts(combo, summary)[0];
+  return `${truncateTitle(combo.name)} | Risk ${formatDollars(combo.amountRisked)} | Est. ${formatComboProbability(summary.estimatedProbability)} | Pays ~${formatDollars(summary.estimatedPayout)} | ${primaryAlert ?? summary.status}`;
 }
 
 function formatLiveContextSnippet(liveContext?: KalshiLiveContext): string {
@@ -742,6 +815,35 @@ export function OverlayApp() {
   );
   const activeWatchedMarkets = watchedMarkets.filter(({ market }) => !isResolvedMarket(market));
   const finalizedWatchedMarkets = watchedMarkets.filter(({ market }) => isResolvedMarket(market));
+  const portfolioSummary = useMemo(() => {
+    const watchedPerformances = watchedMarkets.map(({ item, market }) => ({
+      item,
+      performance: getBetPerformance(item, market)
+    }));
+    const watchedRisk = watchedPerformances.reduce((sum, entry) => sum + entry.performance.amountRisked, 0);
+    const watchedValue = watchedPerformances.reduce(
+      (sum, entry) => sum + (entry.performance.estimatedCurrentValue ?? 0),
+      0
+    );
+    const watchedProfitLoss = watchedPerformances.reduce(
+      (sum, entry) => sum + (entry.performance.estimatedProfitLoss ?? 0),
+      0
+    );
+    const comboRisk = comboSummaries.reduce((sum, entry) => sum + entry.combo.amountRisked, 0);
+    const comboValue = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedPayout ?? 0), 0);
+    const comboProfit = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedProfit ?? 0), 0);
+
+    return {
+      totalRisk: watchedRisk + comboRisk,
+      estimatedValue: watchedValue + comboValue,
+      profitLoss: watchedProfitLoss + comboProfit,
+      activeMarkets: activeWatchedMarkets.length,
+      activeCombos: comboSummaries.length,
+      favorableCount: watchedPerformances.filter((entry) => entry.performance.movementStatus === "favorable").length,
+      unfavorableCount: watchedPerformances.filter((entry) => entry.performance.movementStatus === "unfavorable").length,
+      settledCount: finalizedWatchedMarkets.length
+    };
+  }, [watchedMarkets, activeWatchedMarkets.length, finalizedWatchedMarkets.length, comboSummaries]);
   const watchCount = watchedMarkets.length;
   const totalPositionCount =
     overlayState?.positions.filter((position) => position.contracts > 0).length ??
@@ -799,6 +901,9 @@ export function OverlayApp() {
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
             <span className="klo-info-chip klo-title-chip">Market Tracker</span>
             <span className="klo-info-chip">{watchCount} watched</span>
+            <span className="klo-info-chip klo-portfolio-chip">
+              Portfolio | Risk {formatDollars(portfolioSummary.totalRisk)} | Est. value {formatDollars(portfolioSummary.estimatedValue)} | P/L {formatDollars(portfolioSummary.profitLoss)}
+            </span>
           </div>
 
           <div className="klo-ticker-center">
@@ -921,6 +1026,29 @@ export function OverlayApp() {
           </div>
 
           <section className="klo-scoreboard-card">
+            <div className="klo-summary-eyebrow">Portfolio Summary</div>
+            <div className="klo-scoreboard-row">
+              <span>Total tracked risk</span>
+              <strong>{formatDollars(portfolioSummary.totalRisk)}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Estimated value</span>
+              <strong>{formatDollars(portfolioSummary.estimatedValue)}</strong>
+            </div>
+            <div className="klo-scoreboard-row">
+              <span>Approx P/L</span>
+              <strong>{formatDollars(portfolioSummary.profitLoss)}</strong>
+            </div>
+            <div className="klo-summary-chips">
+              <span className="klo-summary-chip is-live">{portfolioSummary.activeMarkets} active markets</span>
+              <span className="klo-summary-chip is-live">{portfolioSummary.activeCombos} active combos</span>
+              <span className="klo-summary-chip is-good">{portfolioSummary.favorableCount} favorable</span>
+              <span className="klo-summary-chip is-bad">{portfolioSummary.unfavorableCount} unfavorable</span>
+              <span className="klo-summary-chip is-unavailable">{portfolioSummary.settledCount} settled</span>
+            </div>
+          </section>
+
+          <section className="klo-scoreboard-card">
             <div className="klo-summary-eyebrow">Tracker Summary</div>
             <div className="klo-scoreboard-row">
               <span>Watched markets</span>
@@ -973,6 +1101,7 @@ export function OverlayApp() {
                 const isMarketDataUnavailable = !market;
                 const isResolved = isResolvedMarket(market);
                 const resultLabel = getResultLabel(market);
+                const alerts = getMarketAlerts(market, performance, item.userSide);
 
                 return (
                   <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
@@ -982,6 +1111,14 @@ export function OverlayApp() {
                         {getLifecycleLabel(market)}
                       </span>
                     </div>
+
+                    {alerts.length > 0 ? (
+                      <div className="klo-alert-row">
+                        {alerts.map((alert) => (
+                          <span className="klo-alert-badge" key={alert}>{alert}</span>
+                        ))}
+                      </div>
+                    ) : null}
 
                     {isMarketDataUnavailable ? (
                       <div className="klo-simple-message">Market data unavailable</div>
@@ -1156,7 +1293,10 @@ export function OverlayApp() {
           {comboSummaries.length > 0 ? (
             <section className="klo-card-section">
               <div className="klo-section-title">Combo Trackers</div>
-              {comboSummaries.map(({ combo, summary }) => (
+              {comboSummaries.map(({ combo, summary }) => {
+                const alerts = getComboAlerts(combo, summary);
+
+                return (
                 <article className={`klo-position-card klo-combo-card ${comboTone(summary.status)}`} key={combo.id}>
                   <div className="klo-card-topline">
                     <div className="klo-card-title">{combo.name}</div>
@@ -1164,6 +1304,13 @@ export function OverlayApp() {
                       {summary.status}
                     </span>
                   </div>
+                  {alerts.length > 0 ? (
+                    <div className="klo-alert-row">
+                      {alerts.map((alert) => (
+                        <span className="klo-alert-badge" key={alert}>{alert}</span>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="klo-card-primary-grid">
                     <div className="klo-primary-row">
                       <span>Risk</span>
@@ -1231,7 +1378,8 @@ export function OverlayApp() {
                     )}
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </section>
           ) : null}
 

@@ -2145,6 +2145,13 @@ class KalshiService {
       positions,
       manualBets: [],
       comboTrackers: [],
+      alerts: [],
+      portfolioSummary: null,
+      groups: {
+        active: watchedMarketsWithPositions.filter((market) => !market.isResolved),
+        settled: watchedMarketsWithPositions.filter((market) => market.isResolved),
+        archived: []
+      },
       dataQuality: {
         marketDataStatus: aggregateMarketStatus,
         positionsStatus,

@@ -268,6 +268,17 @@ export interface KalshiOverlayState {
   positions: KalshiTrackedPosition[];
   manualBets: [];
   comboTrackers?: KalshiComboTracker[];
+  alerts?: string[];
+  portfolioSummary?: {
+    totalRisk?: number | null;
+    estimatedValue?: number | null;
+    profitLoss?: number | null;
+  } | null;
+  groups?: {
+    active: KalshiMarketSnapshot[];
+    settled: KalshiMarketSnapshot[];
+    archived: KalshiMarketSnapshot[];
+  };
   dataQuality: {
     marketDataStatus: KalshiMarketDataStatus;
     positionsStatus: "available" | "unavailable";

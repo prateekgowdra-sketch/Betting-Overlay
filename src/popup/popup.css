@@ -59,7 +59,7 @@ button {
 }
 
 .combo-panel {
-  order: 1;
+  order: 2;
 }
 
 .settings-panel {
@@ -72,6 +72,11 @@ button {
 
 .watchlist-panel {
   order: 4;
+}
+
+.settled-panel,
+.archived-panel {
+  order: 2;
 }
 
 .hero h1,
@@ -106,6 +111,32 @@ button {
 
 .panel {
   padding: 14px;
+}
+
+.is-hidden {
+  display: none;
+}
+
+.popup-tabs {
+  order: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.popup-tabs button {
+  border: 1px solid rgba(138, 173, 210, 0.22);
+  border-radius: 10px;
+  background: rgba(8, 20, 34, 0.78);
+  color: #bdd2e6;
+  min-height: 38px;
+  font-weight: 800;
+}
+
+.popup-tabs button.active {
+  background: rgba(97, 235, 174, 0.16);
+  color: #61ebae;
+  border-color: rgba(97, 235, 174, 0.34);
 }
 
 .panel-header {
@@ -330,6 +361,14 @@ button {
   gap: 8px;
 }
 
+.search-result-group,
+.combo-result-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
 .combo-result-card {
   border-radius: 12px;
   background: rgba(8, 20, 34, 0.72);
@@ -345,6 +384,25 @@ button {
   gap: 10px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+.combo-slip-estimates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.combo-slip-estimates span {
+  border: 1px solid rgba(97, 235, 174, 0.2);
+  border-radius: 999px;
+  background: rgba(97, 235, 174, 0.08);
+  color: #dfffee;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .section-mini-title {

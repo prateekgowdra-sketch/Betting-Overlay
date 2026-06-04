@@ -172,8 +172,13 @@
 }
 
 .klo-status-chip,
-.klo-updated-chip {
+.klo-updated-chip,
+.klo-portfolio-chip {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.klo-portfolio-chip {
+  max-width: min(520px, 42vw);
 }
 
 .klo-min-button,
@@ -538,6 +543,24 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   list-style-position: inside;
+}
+
+.klo-alert-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.klo-alert-badge {
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #fff2bd;
+  background: rgba(102, 81, 17, 0.78);
+  border: 1px solid rgba(247, 201, 72, 0.28);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .klo-small-action {
