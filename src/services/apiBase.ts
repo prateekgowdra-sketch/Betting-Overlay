@@ -7,6 +7,10 @@ function isChromeExtensionRuntime(): boolean {
   );
 }
 
+function isVercelPage(): boolean {
+  return globalThis.location?.hostname.endsWith(".vercel.app") ?? false;
+}
+
 function normalizeApiBaseUrl(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -17,6 +21,10 @@ export function getApiBaseUrl(): string {
 
   if (typeof configuredBaseUrl === "string" && configuredBaseUrl.trim()) {
     return normalizeApiBaseUrl(configuredBaseUrl.trim());
+  }
+
+  if (isVercelPage()) {
+    return "/api";
   }
 
   return isChromeExtensionRuntime()
