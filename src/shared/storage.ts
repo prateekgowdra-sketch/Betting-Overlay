@@ -62,7 +62,29 @@ function isExtensionContextInvalidated(error: unknown): boolean {
   return error instanceof Error && error.message.includes("Extension context invalidated");
 }
 
+function hasChromeStorage(): boolean {
+  return (
+    typeof chrome !== "undefined" &&
+    Boolean(chrome.storage?.local?.get) &&
+    Boolean(chrome.storage?.local?.set)
+  );
+}
+
 async function safeStorageGet<T>(key: string): Promise<T | undefined> {
+  if (!hasChromeStorage()) {
+    const rawValue = globalThis.localStorage?.getItem(key);
+
+    if (!rawValue) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(rawValue) as T;
+    } catch {
+      return undefined;
+    }
+  }
+
   try {
     const stored = await chrome.storage.local.get(key);
     return stored[key] as T | undefined;
@@ -76,6 +98,14 @@ async function safeStorageGet<T>(key: string): Promise<T | undefined> {
 }
 
 async function safeStorageSet(value: Record<string, unknown>): Promise<void> {
+  if (!hasChromeStorage()) {
+    for (const [key, nextValue] of Object.entries(value)) {
+      globalThis.localStorage?.setItem(key, JSON.stringify(nextValue));
+    }
+
+    return;
+  }
+
   try {
     await chrome.storage.local.set(value);
   } catch (error) {
