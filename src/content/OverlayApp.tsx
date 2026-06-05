@@ -4,6 +4,11 @@ import {
   backendApi
 } from "../services/backendApi";
 import {
+  forecastMarketEdge,
+  MarketForecast,
+  summarizeComboForecast
+} from "../shared/forecasting";
+import {
   APP_SETTINGS_KEY,
   AppSettings,
   getAppSettings,
@@ -366,7 +371,11 @@ function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapsh
   return typeof current === "number" ? Math.max(0, Math.min(100, current)) : 0;
 }
 
-function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): string {
+function renderTickerLabel(
+  item: KalshiWatchlistItem,
+  market?: KalshiMarketSnapshot,
+  forecast: MarketForecast = forecastMarketEdge(market, item.userSide, item.entryPriceCents)
+): string {
   const performance = getBetPerformance(item, market);
   const outcome = getUserOutcomeLabel(market, item.userSide);
   const currentProbability = formatKalshiPriceAsPercent(performance.currentSidePriceCents);
@@ -377,7 +386,7 @@ function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnaps
     return `${truncateTitle(getDisplayTitle(item))} | Final ${currentProbability} | ${outcome || "Result unknown"} | ${movement}`;
   }
 
-  return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${currentProbability} | You ${item.userSide} | ${movement} ${status}`;
+  return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${currentProbability} | ${formatEdge(forecast.edgeCents)} edge | ${movement} ${status}`;
 }
 
 type ComboStatus = "live" | "won" | "lost" | "incomplete data";
@@ -481,6 +490,46 @@ function getComboSummary(
 
 function formatComboProbability(value: number | null): string {
   return typeof value === "number" ? `${value.toFixed(1)}%` : "--";
+}
+
+function formatForecastProbability(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value.toFixed(1)}%` : "--";
+}
+
+function formatEdge(value: number | null | undefined): string {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function edgeTone(edge: number | null | undefined): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
+  if (typeof edge !== "number") {
+    return "is-unavailable";
+  }
+
+  if (edge >= 2) {
+    return "is-good";
+  }
+
+  if (edge <= -2) {
+    return "is-bad";
+  }
+
+  return "is-live";
+}
+
+function confidenceTone(confidence: MarketForecast["confidence"]): "is-good" | "is-live" | "is-unavailable" {
+  if (confidence === "High") {
+    return "is-good";
+  }
+
+  if (confidence === "Medium") {
+    return "is-live";
+  }
+
+  return "is-unavailable";
 }
 
 function isClosingSoon(market?: KalshiMarketSnapshot): boolean {
@@ -930,13 +979,11 @@ export function OverlayApp() {
     );
   }
 
-  const minimizedLabel = `Kalshi | ${watchCount} watched${watchCount ? ` | Updated ${lastUpdated}` : ""}`;
-
   if (uiState.minimized) {
     return (
       <button
         type="button"
-        className="klo-pill"
+        className="klo-pill klo-minimized-bar"
         onClick={() =>
           void updateUiState({
             ...uiState,
@@ -944,66 +991,68 @@ export function OverlayApp() {
           })
         }
       >
-        {minimizedLabel}
+        <span className="klo-minimized-brand">Kalshi</span>
+        <span className="klo-minimized-count">{watchCount} watched</span>
+        <span className="klo-minimized-status">
+          Risk {formatDollars(portfolioSummary.totalRisk)}
+          {watchCount ? ` | Updated ${lastUpdated}` : ""}
+        </span>
+        <span className="klo-minimized-action">Expand</span>
       </button>
     );
   }
 
   const toggleLabel = uiState.viewMode === "ticker" ? "Cards" : "Ticker";
+  const tickerTotalItems = activeWatchedMarkets.length + comboSummaries.length;
+  const primaryTickerText =
+    activeWatchedMarkets.length > 0
+      ? renderTickerLabel(
+          activeWatchedMarkets[0].item,
+          activeWatchedMarkets[0].market,
+          forecastMarketEdge(
+            activeWatchedMarkets[0].market,
+            activeWatchedMarkets[0].item.userSide,
+            activeWatchedMarkets[0].item.entryPriceCents
+          )
+        )
+      : comboSummaries.length > 0
+        ? renderComboTickerLabel(comboSummaries[0].combo, comboSummaries[0].summary)
+        : watchedMarkets.length === 0
+          ? "Search market or combo in the popup to begin tracking."
+          : "No active watched markets. Settled markets are in card view.";
+  const tickerStatusText =
+    tickerTotalItems > 1
+      ? `${primaryTickerText} +${tickerTotalItems - 1} more`
+      : primaryTickerText;
+  const tickerStatusTone =
+    activeWatchedMarkets.length > 0
+      ? getMovementTone(getBetPerformance(activeWatchedMarkets[0].item, activeWatchedMarkets[0].market).movementCents)
+      : comboSummaries.length > 0
+        ? comboTone(comboSummaries[0].summary.status)
+        : "is-unavailable";
 
   return (
     <>
       {uiState.viewMode === "ticker" ? (
-        <aside className="klo-top-ticker">
+        <aside className="klo-top-ticker overlay--ticker">
           <div className="klo-ticker-left">
             <span className="klo-info-chip klo-brand-chip">Kalshi</span>
             <span className="klo-info-chip klo-title-chip">Market Tracker</span>
             <span className="klo-info-chip">{watchCount} watched</span>
-            <span className="klo-info-chip klo-portfolio-chip">
-              Portfolio | Risk {formatDollars(portfolioSummary.totalRisk)} | Cashout {formatDollars(portfolioSummary.estimatedValue)}
-            </span>
           </div>
 
           <div className="klo-ticker-center">
-            {activeWatchedMarkets.length === 0 && comboSummaries.length === 0 ? (
-              <div className="klo-info-chip">
-                {watchedMarkets.length === 0
-                  ? "Add a watched market or combo in the popup to begin tracking."
-                  : "No active watched markets. Settled markets are in card view."}
-              </div>
-            ) : (
-              <>
-                {activeWatchedMarkets.map(({ item, market }) => {
-                  const performance = getBetPerformance(item, market);
-                  const tone = getMovementTone(performance.movementCents);
-
-                  return (
-                    <div className={`klo-bet-chip ${tone}`} key={item.ticker} title={item.ticker}>
-                      <span className="klo-chip-label">{renderTickerLabel(item, market)}</span>
-                      <span
-                        className="klo-chip-progress"
-                        style={{ width: `${getProgressValue(item, market)}%` }}
-                      />
-                    </div>
-                  );
-                })}
-                {comboSummaries.map(({ combo, summary }) => (
-                  <div
-                    className={`klo-bet-chip ${comboTone(summary.status)}`}
-                    key={combo.id}
-                    title={combo.name}
-                  >
-                    <span className="klo-chip-label">{renderComboTickerLabel(combo, summary)}</span>
-                    <span
-                      className="klo-chip-progress"
-                      style={{
-                        width: `${Math.max(0, Math.min(100, summary.estimatedProbability ?? 0))}%`
-                      }}
-                    />
-                  </div>
-                ))}
-              </>
-            )}
+            <span className="klo-info-chip klo-portfolio-chip" title={`Portfolio | Risk ${formatDollars(portfolioSummary.totalRisk)} | Cashout ${formatDollars(portfolioSummary.estimatedValue)}`}>
+              <span className="klo-portfolio-full">
+                Portfolio | Risk {formatDollars(portfolioSummary.totalRisk)} | Cashout {formatDollars(portfolioSummary.estimatedValue)}
+              </span>
+              <span className="klo-portfolio-compact">
+                Risk {formatDollars(portfolioSummary.totalRisk)}
+              </span>
+            </span>
+            <div className={`klo-ticker-message ${tickerStatusTone}`} title={tickerStatusText}>
+              <span>{tickerStatusText}</span>
+            </div>
           </div>
 
           <div className="klo-ticker-right">
@@ -1157,6 +1206,7 @@ export function OverlayApp() {
                 const resultLabel = getResultLabel(market);
                 const userOutcomeLabel = getUserOutcomeLabel(market, item.userSide);
                 const alerts = getMarketAlerts(market, performance, item.userSide);
+                const forecast = forecastMarketEdge(market, item.userSide, item.entryPriceCents);
 
 	                return (
 	                  <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
@@ -1274,6 +1324,23 @@ export function OverlayApp() {
                           </div>
                         </div>
 
+                        {!isResolved ? (
+                          <div className="klo-model-strip">
+                            <div className="klo-model-metric">
+                              <span>Model</span>
+                              <strong>{formatForecastProbability(forecast.fairSideProbability)}</strong>
+                            </div>
+                            <div className={`klo-model-metric ${edgeTone(forecast.edgeCents)}`}>
+                              <span>Edge</span>
+                              <strong>{formatEdge(forecast.edgeCents)}</strong>
+                            </div>
+                            <div className={`klo-model-metric ${confidenceTone(forecast.confidence)}`}>
+                              <span>Confidence</span>
+                              <strong>{forecast.confidence}</strong>
+                            </div>
+                          </div>
+                        ) : null}
+
                         <div className="klo-card-context-line">
                           {isResolved
                             ? `Result: ${resultLabel}`
@@ -1313,6 +1380,32 @@ export function OverlayApp() {
                       <div className="klo-card-meta">
                         <span>Raw movement</span>
                         <span>{formatMovement(performance.movementCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Model forecast</span>
+                        <span>{item.userSide} {formatForecastProbability(forecast.fairSideProbability)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Model edge</span>
+                        <span>{formatEdge(forecast.edgeCents)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Model confidence</span>
+                        <span>{forecast.confidence}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Movement call</span>
+                        <span>{forecast.movementForecast}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Model inputs</span>
+                        <span>
+                          Price {formatPrice(forecast.featureSummary.currentPriceCents)} · Move {formatMovement(forecast.featureSummary.recentMovementCents)} · Spread {formatPrice(forecast.featureSummary.bidAskSpreadCents)}
+                        </span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Based on</span>
+                        <span>{forecast.basedOn.join(", ")}</span>
                       </div>
                       <div className="klo-card-meta">
                         <span>Contracts</span>
@@ -1373,6 +1466,7 @@ export function OverlayApp() {
               <div className="klo-section-title">Combo Trackers</div>
               {comboSummaries.map(({ combo, summary }) => {
                 const alerts = getComboAlerts(combo, summary);
+                const forecastSummary = summarizeComboForecast(combo, marketsByTicker, summary.estimatedPayout);
 
 	                return (
 	                  <article className={`klo-position-card klo-combo-card ${comboTone(summary.status)}`} key={combo.id}>
@@ -1398,6 +1492,20 @@ export function OverlayApp() {
                       ))}
                     </div>
                   ) : null}
+                  <div className="klo-model-strip">
+                    <div className={`klo-model-metric ${edgeTone(forecastSummary.averageEdgeCents)}`}>
+                      <span>Avg edge</span>
+                      <strong>{formatEdge(forecastSummary.averageEdgeCents)}</strong>
+                    </div>
+                    <div className={`klo-model-metric ${forecastSummary.riskLevel === "Low" ? "is-good" : forecastSummary.riskLevel === "Medium" ? "is-live" : "is-bad"}`}>
+                      <span>Risk</span>
+                      <strong>{forecastSummary.riskLevel}</strong>
+                    </div>
+                    <div className="klo-model-metric">
+                      <span>Est. profit</span>
+                      <strong>{formatDollars(forecastSummary.estimatedProfit)}</strong>
+                    </div>
+                  </div>
                   <div className="klo-card-primary-grid">
                     <div className="klo-primary-row">
                       <span>Risk</span>
@@ -1442,6 +1550,7 @@ export function OverlayApp() {
                       combo.legs.map((leg) => {
                         const market = marketsByTicker[leg.ticker];
                         const liveProbability = getSideProbability(market, leg.userSide);
+                        const legForecast = forecastMarketEdge(market, leg.userSide, leg.entryPriceCents);
                         const currentProbability = liveProbability ?? leg.entryPriceCents;
                         const movement = getProbabilityMovement(
                           leg.entryPriceCents,
@@ -1472,7 +1581,7 @@ export function OverlayApp() {
                             <div className="klo-combo-leg-main">
                               <strong>{leg.displayTitle || leg.title}</strong>
                               <span>
-                                {leg.userSide} {formatKalshiPriceAsPercent(currentProbability)} | {formatProbabilityMovement(movement)} | {resolvedResult}
+                                {leg.userSide} {formatKalshiPriceAsPercent(currentProbability)} | edge {formatEdge(legForecast.edgeCents)} | {resolvedResult}
                               </span>
                             </div>
                           </div>
@@ -1480,6 +1589,29 @@ export function OverlayApp() {
                       })
                     )}
                   </div>
+                  <details className="klo-details">
+                    <summary>Model details</summary>
+                    <div className="klo-card-meta">
+                      <span>Average edge</span>
+                      <span>{formatEdge(forecastSummary.averageEdgeCents)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Estimated payout</span>
+                      <span>{formatDollars(forecastSummary.estimatedPayout)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Estimated profit</span>
+                      <span>{formatDollars(forecastSummary.estimatedProfit)}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Weak value legs</span>
+                      <span>{forecastSummary.weakLegCount}</span>
+                    </div>
+                    <div className="klo-card-meta">
+                      <span>Correlation risk</span>
+                      <span>{forecastSummary.correlationWarning ? "Possible same-event overlap" : "No obvious same-event overlap"}</span>
+                    </div>
+                  </details>
                 </article>
                 );
               })}

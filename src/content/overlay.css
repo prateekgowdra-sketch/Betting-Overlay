@@ -15,24 +15,22 @@
 
 .klo-top-ticker {
   position: fixed;
-  top: 8px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  width: fit-content;
-  max-width: min(1180px, calc(100vw - 24px));
-  min-height: 52px;
-  max-height: min(220px, calc(100vh - 16px));
+  width: min(1100px, calc(100vw - 48px));
+  min-height: 54px;
+  max-height: 60px;
   z-index: 2147483647;
   display: flex;
   align-items: center;
-  align-content: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
   background: rgba(5, 13, 22, 0.86);
   backdrop-filter: blur(14px);
-  overflow: clip;
+  overflow: visible;
   color: #eef7ff;
   border: 1px solid rgba(138, 173, 210, 0.16);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
@@ -43,18 +41,19 @@
 .klo-ticker-right {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  min-width: 0;
 }
 
 .klo-ticker-left {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .klo-ticker-right {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   justify-content: flex-end;
+  min-width: max-content;
 }
 
 .klo-ticker-center {
@@ -62,11 +61,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   scrollbar-width: none;
-  min-width: min(280px, calc(100vw - 48px));
-  max-width: min(680px, calc(100vw - 48px));
+  min-width: 220px;
   pointer-events: auto;
 }
 
@@ -98,6 +96,20 @@
   min-width: 0;
   text-align: center;
   pointer-events: auto;
+}
+
+.overlay--ticker .klo-info-chip,
+.overlay--ticker .klo-min-button,
+.overlay--ticker .klo-view-toggle {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  height: 34px;
+  min-height: 34px;
+  padding: 6px 10px;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 13px;
 }
 
 .klo-info-chip {
@@ -183,7 +195,68 @@
 }
 
 .klo-portfolio-chip {
-  max-width: min(520px, 42vw);
+  flex: 0 1 auto;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.klo-portfolio-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.klo-portfolio-compact {
+  display: none;
+}
+
+.klo-ticker-message {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 180px;
+  height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  color: #f8fbff;
+  background: rgba(20, 33, 47, 0.9);
+  border: 1px solid rgba(138, 173, 210, 0.14);
+  pointer-events: auto;
+}
+
+.klo-ticker-message span {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.klo-ticker-message.is-good {
+  background: rgba(27, 88, 58, 0.72);
+  border-color: rgba(97, 235, 174, 0.24);
+}
+
+.klo-ticker-message.is-live {
+  background: rgba(102, 81, 17, 0.72);
+  border-color: rgba(247, 201, 72, 0.24);
+}
+
+.klo-ticker-message.is-bad {
+  background: rgba(103, 36, 36, 0.72);
+  border-color: rgba(241, 91, 91, 0.24);
+}
+
+.klo-ticker-message.is-unavailable {
+  background: rgba(74, 84, 96, 0.72);
+  border-color: rgba(149, 167, 187, 0.22);
 }
 
 .klo-min-button,
@@ -208,6 +281,47 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   pointer-events: auto;
+}
+
+.klo-minimized-bar {
+  width: min(560px, calc(100vw - 24px));
+  height: 44px;
+  min-height: 44px;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 6px 8px;
+  overflow: hidden;
+}
+
+.klo-minimized-bar span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.klo-minimized-brand,
+.klo-minimized-action {
+  flex: 0 0 auto;
+}
+
+.klo-minimized-brand {
+  color: #70e4bf;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.klo-minimized-count {
+  flex: 0 0 auto;
+}
+
+.klo-minimized-status {
+  flex: 1 1 auto;
+  color: #bfd3e8;
+}
+
+.klo-minimized-action {
+  color: #eef7ff;
 }
 
 .klo-card-view {
@@ -521,6 +635,65 @@
   border-color: rgba(149, 167, 187, 0.24);
 }
 
+.klo-model-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.klo-model-metric {
+  min-width: 0;
+  min-height: 52px;
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(138, 173, 210, 0.13);
+}
+
+.klo-model-metric span {
+  display: block;
+  color: #9cb7d3;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.klo-model-metric strong {
+  display: block;
+  margin-top: 4px;
+  color: #f8fbff;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.klo-model-metric.is-good {
+  background: rgba(27, 88, 58, 0.78);
+  border-color: rgba(97, 235, 174, 0.26);
+}
+
+.klo-model-metric.is-live {
+  background: rgba(102, 81, 17, 0.72);
+  border-color: rgba(247, 201, 72, 0.24);
+}
+
+.klo-model-metric.is-bad {
+  background: rgba(103, 36, 36, 0.72);
+  border-color: rgba(241, 91, 91, 0.24);
+}
+
+.klo-model-metric.is-unavailable {
+  background: rgba(74, 84, 96, 0.72);
+  border-color: rgba(149, 167, 187, 0.22);
+}
+
 .klo-card-context-line,
 .klo-simple-message {
   margin-top: 10px;
@@ -697,8 +870,9 @@
 
 @media (max-width: 1100px) {
   .klo-top-ticker {
-    max-width: calc(100vw - 16px);
-    padding: 6px 8px;
+    width: calc(100vw - 24px);
+    gap: 7px;
+    padding: 8px 10px;
   }
 
   .klo-info-chip,
@@ -710,17 +884,21 @@
     font-size: 12px;
   }
 
-  .klo-title-chip {
-    max-width: 112px;
+  .klo-portfolio-chip {
+    max-width: 190px;
+  }
+
+  .klo-portfolio-full {
+    display: none;
+  }
+
+  .klo-portfolio-compact {
+    display: block;
   }
 
   .klo-parlay-summary-chip {
     max-width: min(440px, 58vw);
     flex-basis: 340px;
-  }
-
-  .klo-updated-chip {
-    display: none;
   }
 
   .klo-card-view {
@@ -733,17 +911,53 @@
 
 @media (max-width: 720px) {
   .klo-top-ticker {
-    align-items: stretch;
+    top: 8px;
+    width: calc(100vw - 16px);
+    min-height: 50px;
+    max-height: 56px;
+    gap: 6px;
+    padding: 7px 8px;
   }
 
-  .klo-ticker-left,
-  .klo-ticker-center,
-  .klo-ticker-right {
-    flex: 1 1 100%;
+  .klo-ticker-left {
+    flex: 0 0 auto;
+    gap: 6px;
   }
 
   .klo-ticker-right {
-    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .klo-ticker-center {
+    flex: 1 1 auto;
+    min-width: 80px;
+    gap: 6px;
+  }
+
+  .klo-title-chip {
+    display: none;
+  }
+
+  .klo-portfolio-chip {
+    max-width: 118px;
+  }
+
+  .klo-updated-chip {
+    display: none;
+  }
+
+  .overlay--ticker .klo-info-chip,
+  .overlay--ticker .klo-min-button,
+  .overlay--ticker .klo-view-toggle,
+  .klo-ticker-message {
+    height: 32px;
+    min-height: 32px;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+
+  .klo-ticker-message span {
+    font-size: 12px;
   }
 
   .klo-card-meta,
@@ -760,8 +974,48 @@
     justify-self: start;
   }
 
+  .klo-model-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .klo-model-metric {
+    padding: 7px;
+  }
+
+  .klo-model-metric strong {
+    font-size: 12px;
+  }
+
   .klo-card-primary-grid,
   .klo-probability-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .klo-view-toggle {
+    display: none;
+  }
+
+  .klo-ticker-center {
+    min-width: 0;
+  }
+
+  .klo-portfolio-chip {
+    max-width: 96px;
+  }
+
+  .klo-ticker-message {
+    min-width: 64px;
+  }
+}
+
+@media (max-width: 420px) {
+  .klo-ticker-message {
+    display: none;
+  }
+
+  .klo-portfolio-chip {
+    max-width: 112px;
   }
 }
