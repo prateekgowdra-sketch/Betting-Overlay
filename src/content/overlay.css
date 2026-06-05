@@ -1,7 +1,10 @@
 #kalshi-live-overlay-root {
   all: initial;
-  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
   isolation: isolate;
+  pointer-events: none;
 }
 
 #kalshi-live-overlay-root,
@@ -15,9 +18,10 @@
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  width: calc(100vw - 24px);
+  width: fit-content;
+  max-width: min(1180px, calc(100vw - 24px));
   min-height: 52px;
-  max-height: calc(100vh - 16px);
+  max-height: min(220px, calc(100vh - 16px));
   z-index: 2147483647;
   display: flex;
   align-items: center;
@@ -28,7 +32,7 @@
   border-radius: 8px;
   background: rgba(5, 13, 22, 0.86);
   backdrop-filter: blur(14px);
-  overflow: hidden;
+  overflow: clip;
   color: #eef7ff;
   border: 1px solid rgba(138, 173, 210, 0.16);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
@@ -61,7 +65,8 @@
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  min-width: 0;
+  min-width: min(280px, calc(100vw - 48px));
+  max-width: min(680px, calc(100vw - 48px));
   pointer-events: auto;
 }
 
@@ -210,6 +215,7 @@
   top: 16px;
   left: 16px;
   width: min(430px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   z-index: 2147483647;
@@ -678,6 +684,7 @@
   background: rgba(5, 13, 22, 0.86);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(138, 173, 210, 0.14);
+  pointer-events: none;
 }
 
 .klo-status-banner.loading {
@@ -690,7 +697,7 @@
 
 @media (max-width: 1100px) {
   .klo-top-ticker {
-    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
     padding: 6px 8px;
   }
 
