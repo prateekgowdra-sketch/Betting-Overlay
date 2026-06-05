@@ -2,15 +2,20 @@ import {
   KalshiComboTracker,
   KalshiWatchlistItem,
   ManualParlay,
-  OverlayDataMode
+  OverlayDataMode,
+  ResearchPaperTrade,
+  ResearchSettings
 } from "./types";
 import { buildApiUrl } from "../services/apiBase";
+import { getDefaultResearchSettings } from "./research";
 
 export const OVERLAY_UI_KEY = "kalshi-live-overlay-ui";
 export const APP_SETTINGS_KEY = "kalshi-live-overlay-settings";
 export const MANUAL_PARLAY_KEY = "kalshi-live-overlay-manual-parlay";
 export const KALSHI_WATCHLIST_KEY = "kalshi-live-overlay-watchlist";
 export const KALSHI_COMBO_TRACKERS_KEY = "kalshi-live-overlay-combo-trackers";
+export const RESEARCH_SETTINGS_KEY = "kalshi-live-overlay-research-settings";
+export const RESEARCH_PAPER_TRADES_KEY = "kalshi-live-overlay-paper-trades";
 const PARLAY_API_PATH = "/parlays";
 const OVERLAY_UI_VERSION = 4;
 
@@ -44,6 +49,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 
 const DEFAULT_KALSHI_WATCHLIST: KalshiWatchlistItem[] = [];
 const DEFAULT_KALSHI_COMBO_TRACKERS: KalshiComboTracker[] = [];
+const DEFAULT_RESEARCH_PAPER_TRADES: ResearchPaperTrade[] = [];
 
 const DEFAULT_MANUAL_PARLAY: ManualParlay = {
   id: "manual-parlay-default",
@@ -366,6 +372,102 @@ export async function getKalshiComboTrackers(): Promise<KalshiComboTracker[]> {
 export async function saveKalshiComboTrackers(combos: KalshiComboTracker[]): Promise<void> {
   await safeStorageSet({
     [KALSHI_COMBO_TRACKERS_KEY]: combos
+  });
+}
+
+export async function getResearchSettings(): Promise<ResearchSettings> {
+  const defaults = getDefaultResearchSettings();
+  const existing = await safeStorageGet<ResearchSettings>(RESEARCH_SETTINGS_KEY);
+
+  if (existing) {
+    return {
+      ...defaults,
+      ...existing,
+      enableRealTrading: false,
+      maxPaperTradeDollars:
+        typeof existing.maxPaperTradeDollars === "number" && Number.isFinite(existing.maxPaperTradeDollars)
+          ? Math.max(0, existing.maxPaperTradeDollars)
+          : defaults.maxPaperTradeDollars,
+      maxDailyRiskDollars:
+        typeof existing.maxDailyRiskDollars === "number" && Number.isFinite(existing.maxDailyRiskDollars)
+          ? Math.max(0, existing.maxDailyRiskDollars)
+          : defaults.maxDailyRiskDollars,
+      minimumEdgePercent:
+        typeof existing.minimumEdgePercent === "number" && Number.isFinite(existing.minimumEdgePercent)
+          ? Math.max(0, existing.minimumEdgePercent)
+          : defaults.minimumEdgePercent,
+      feeSlippageBufferPercent:
+        typeof existing.feeSlippageBufferPercent === "number" && Number.isFinite(existing.feeSlippageBufferPercent)
+          ? Math.max(0, existing.feeSlippageBufferPercent)
+          : defaults.feeSlippageBufferPercent,
+      manualModelProbability:
+        typeof existing.manualModelProbability === "number" && Number.isFinite(existing.manualModelProbability)
+          ? Math.max(1, Math.min(99, existing.manualModelProbability))
+          : defaults.manualModelProbability
+    };
+  }
+
+  await safeStorageSet({ [RESEARCH_SETTINGS_KEY]: defaults });
+  return defaults;
+}
+
+export async function saveResearchSettings(settings: ResearchSettings): Promise<void> {
+  await safeStorageSet({
+    [RESEARCH_SETTINGS_KEY]: {
+      ...settings,
+      enableRealTrading: false
+    }
+  });
+}
+
+export async function getResearchPaperTrades(): Promise<ResearchPaperTrade[]> {
+  const existing = await safeStorageGet<ResearchPaperTrade[]>(RESEARCH_PAPER_TRADES_KEY);
+
+  if (Array.isArray(existing)) {
+    return existing
+      .filter((trade) => trade && typeof trade.id === "string" && typeof trade.marketTicker === "string")
+      .map((trade) => ({
+        id: trade.id,
+        timestamp: typeof trade.timestamp === "string" ? trade.timestamp : new Date().toISOString(),
+        marketTicker: trade.marketTicker,
+        marketTitle: typeof trade.marketTitle === "string" ? trade.marketTitle : trade.marketTicker,
+        side: trade.side === "NO" ? "NO" : "YES",
+        entryPriceCents:
+          typeof trade.entryPriceCents === "number" && Number.isFinite(trade.entryPriceCents)
+            ? Math.max(0, Math.min(100, trade.entryPriceCents))
+            : 50,
+        modelProbabilityPercent:
+          typeof trade.modelProbabilityPercent === "number" && Number.isFinite(trade.modelProbabilityPercent)
+            ? Math.max(1, Math.min(99, trade.modelProbabilityPercent))
+            : 50,
+        edgePercent:
+          typeof trade.edgePercent === "number" && Number.isFinite(trade.edgePercent)
+            ? trade.edgePercent
+            : 0,
+        suggestedRiskDollars:
+          typeof trade.suggestedRiskDollars === "number" && Number.isFinite(trade.suggestedRiskDollars)
+            ? Math.max(0, trade.suggestedRiskDollars)
+            : 0,
+        status: trade.status === "settled" ? "settled" : "open",
+        exitValueCents:
+          typeof trade.exitValueCents === "number" && Number.isFinite(trade.exitValueCents)
+            ? Math.max(0, Math.min(100, trade.exitValueCents))
+            : null,
+        profitLossDollars:
+          typeof trade.profitLossDollars === "number" && Number.isFinite(trade.profitLossDollars)
+            ? trade.profitLossDollars
+            : null,
+        settledAt: typeof trade.settledAt === "string" ? trade.settledAt : null
+      }));
+  }
+
+  await safeStorageSet({ [RESEARCH_PAPER_TRADES_KEY]: DEFAULT_RESEARCH_PAPER_TRADES });
+  return DEFAULT_RESEARCH_PAPER_TRADES;
+}
+
+export async function saveResearchPaperTrades(trades: ResearchPaperTrade[]): Promise<void> {
+  await safeStorageSet({
+    [RESEARCH_PAPER_TRADES_KEY]: trades
   });
 }
 

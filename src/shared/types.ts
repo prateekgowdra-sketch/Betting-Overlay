@@ -301,6 +301,33 @@ export interface KalshiMarketOrderbook {
   no: KalshiOrderbookLevel[];
  }
 
+export interface ResearchSettings {
+  enableRealTrading: false;
+  maxPaperTradeDollars: number;
+  maxDailyRiskDollars: number;
+  minimumEdgePercent: number;
+  feeSlippageBufferPercent: number;
+  manualModelProbability: number;
+}
+
+export type ResearchPaperTradeStatus = "open" | "settled";
+
+export interface ResearchPaperTrade {
+  id: string;
+  timestamp: string;
+  marketTicker: string;
+  marketTitle: string;
+  side: KalshiMarketSide;
+  entryPriceCents: number;
+  modelProbabilityPercent: number;
+  edgePercent: number;
+  suggestedRiskDollars: number;
+  status: ResearchPaperTradeStatus;
+  exitValueCents?: number | null;
+  profitLossDollars?: number | null;
+  settledAt?: string | null;
+}
+
 export type ManualLegLiveStatus = "hit" | "live" | "behind" | "unavailable";
 
 export type OverlayDataMode = "markets" | "demo" | "manual";

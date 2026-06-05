@@ -8,17 +8,27 @@ import {
   AppSettings,
   getAppSettings,
   getKalshiComboTrackers,
+  getResearchPaperTrades,
+  getResearchSettings,
   getKalshiWatchlist,
   saveAppSettings,
   saveKalshiComboTrackers,
+  saveResearchPaperTrades,
+  saveResearchSettings,
   saveKalshiWatchlist
 } from "../shared/storage";
+import {
+  generateResearchPick,
+  summarizePaperTrades
+} from "../shared/research";
 import {
   KalshiComboTracker,
   KalshiMarketSide,
   KalshiMarketSnapshot,
   KalshiSportFilterOption,
-  KalshiWatchlistItem
+  KalshiWatchlistItem,
+  ResearchPaperTrade,
+  ResearchSettings
 } from "../shared/types";
 
 interface ComboLegSearchGroup {
@@ -27,7 +37,7 @@ interface ComboLegSearchGroup {
   queryInfo: KalshiMarketsResponse["queryInfo"] | null;
 }
 
-type PopupTab = "combos" | "active" | "settled" | "archived";
+type PopupTab = "combos" | "active" | "research" | "settled" | "archived";
 type SearchDisplayGroup<T> = {
   label: string;
   items: T[];
@@ -199,6 +209,14 @@ function formatPercent(value: number | null | undefined): string {
   return typeof value === "number" ? `${value.toFixed(1)}%` : "--";
 }
 
+function formatSignedPercent(value: number | null | undefined): string {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
 function getSearchDisplayGroups<T>(
   items: T[],
   hasQuery: boolean,
@@ -311,6 +329,8 @@ export function PopupApp() {
   const [comboSaveMessage, setComboSaveMessage] = useState("");
   const [isLoadingComboLegs, setIsLoadingComboLegs] = useState(false);
   const [hasSearchedComboLegs, setHasSearchedComboLegs] = useState(false);
+  const [researchSettings, setResearchSettings] = useState<ResearchSettings | null>(null);
+  const [paperTrades, setPaperTrades] = useState<ResearchPaperTrade[]>([]);
   const [popupTab, setPopupTab] = useState<PopupTab>("combos");
 
   useEffect(() => {
@@ -318,10 +338,12 @@ export function PopupApp() {
       getAppSettings(),
       getKalshiWatchlist(),
       getKalshiComboTrackers(),
+      getResearchSettings(),
+      getResearchPaperTrades(),
       backendApi.getBackendStatus().catch(() => null),
       backendApi.getKalshiSportsFilters().catch(() => null),
       loadSearchResults("", "open").catch(() => null)
-    ]).then(([nextSettings, nextWatchlist, nextComboTrackers, nextBackendStatus, nextSportFilters, initialResults]) => {
+    ]).then(([nextSettings, nextWatchlist, nextComboTrackers, nextResearchSettings, nextPaperTrades, nextBackendStatus, nextSportFilters, initialResults]) => {
       const marketTrackerSettings =
         nextSettings.dataMode === "markets"
           ? nextSettings
@@ -333,6 +355,8 @@ export function PopupApp() {
       setSettings(marketTrackerSettings);
       setWatchlist(nextWatchlist);
       setComboTrackers(nextComboTrackers);
+      setResearchSettings(nextResearchSettings);
+      setPaperTrades(nextPaperTrades);
       setBackendStatus(nextBackendStatus);
       setSportFilters(nextSportFilters?.sports ?? []);
 
@@ -366,6 +390,25 @@ export function PopupApp() {
     setComboTrackers(next);
     setIsSaving(true);
     await saveKalshiComboTrackers(next);
+    setIsSaving(false);
+  }
+
+  async function persistResearchSettings(next: ResearchSettings) {
+    const safeSettings: ResearchSettings = {
+      ...next,
+      enableRealTrading: false
+    };
+
+    setResearchSettings(safeSettings);
+    setIsSaving(true);
+    await saveResearchSettings(safeSettings);
+    setIsSaving(false);
+  }
+
+  async function persistPaperTrades(next: ResearchPaperTrade[]) {
+    setPaperTrades(next);
+    setIsSaving(true);
+    await saveResearchPaperTrades(next);
     setIsSaving(false);
   }
 
@@ -420,7 +463,7 @@ export function PopupApp() {
     return `${activeCombos.length} combo tracker${activeCombos.length === 1 ? "" : "s"}`;
   }, [comboTrackers]);
 
-  if (!settings) {
+  if (!settings || !researchSettings) {
     return <div className="popup-shell loading">Loading market tracker...</div>;
   }
 
@@ -448,6 +491,18 @@ export function PopupApp() {
     comboBuilderLegs,
     newComboAmountRisked
   );
+  const researchPicks = searchResults
+    .filter((market) => !market.isResolved)
+    .slice(0, 8)
+    .map((market) => generateResearchPick(market, researchSettings, researchSettings.manualModelProbability));
+  const bestResearchPick = researchPicks.reduce<(typeof researchPicks)[number] | null>(
+    (bestPick, pick) =>
+      !bestPick || (pick.netEdgePercent ?? -Infinity) > (bestPick.netEdgePercent ?? -Infinity)
+        ? pick
+        : bestPick,
+    null
+  );
+  const paperTradeStats = summarizePaperTrades(paperTrades);
 
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
@@ -682,6 +737,54 @@ export function PopupApp() {
     await addMarketToWatchlist(market);
   }
 
+  async function addPaperTradeFromPick(pick: (typeof researchPicks)[number]) {
+    if (typeof pick.currentPriceCents !== "number" || pick.suggestedRiskDollars <= 0) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextTrade: ResearchPaperTrade = {
+      id: `paper-${pick.marketTicker}-${Date.now()}`,
+      timestamp: now,
+      marketTicker: pick.marketTicker,
+      marketTitle: pick.marketTitle,
+      side: pick.side,
+      entryPriceCents: pick.currentPriceCents,
+      modelProbabilityPercent: pick.modelProbabilityPercent,
+      edgePercent: pick.edgePercent ?? 0,
+      suggestedRiskDollars: pick.suggestedRiskDollars,
+      status: "open",
+      exitValueCents: null,
+      profitLossDollars: null,
+      settledAt: null
+    };
+
+    await persistPaperTrades([nextTrade, ...paperTrades]);
+  }
+
+  async function settlePaperTrade(trade: ResearchPaperTrade, exitValueCents: number) {
+    const safeExitValue = Math.max(0, Math.min(100, exitValueCents));
+    const contracts =
+      trade.entryPriceCents > 0 ? trade.suggestedRiskDollars / (trade.entryPriceCents / 100) : 0;
+    const profitLossDollars = roundCurrency(
+      contracts * ((safeExitValue - trade.entryPriceCents) / 100)
+    );
+
+    await persistPaperTrades(
+      paperTrades.map((currentTrade) =>
+        currentTrade.id === trade.id
+          ? {
+              ...currentTrade,
+              status: "settled",
+              exitValueCents: safeExitValue,
+              profitLossDollars,
+              settledAt: new Date().toISOString()
+            }
+          : currentTrade
+      )
+    );
+  }
+
   return (
     <div className="popup-shell">
       <header className="hero">
@@ -700,6 +803,7 @@ export function PopupApp() {
         {[
           ["combos", "Combos"],
           ["active", "Active"],
+          ["research", "Research"],
           ["settled", "Settled"],
           ["archived", "Archived"]
         ].map(([tab, label]) => (
@@ -1399,6 +1503,237 @@ export function PopupApp() {
               </article>
             ))
           )}
+        </div>
+      </section>
+
+      <section className={`panel research-panel ${popupTab === "research" ? "" : "is-hidden"}`}>
+        <div className="panel-header">
+          <h2>Research Mode</h2>
+          <span className="status-pill mock">Paper only</span>
+        </div>
+
+        <div className="research-banner">
+          Real trading is disabled. This mode only calculates EV, flags possible arbitrage, generates picks, and saves paper trades.
+        </div>
+
+        <div className="field-grid research-settings-grid">
+          <label>
+            Manual model YES probability (%)
+            <input
+              type="number"
+              min={1}
+              max={99}
+              value={researchSettings.manualModelProbability}
+              onChange={(event) =>
+                void persistResearchSettings({
+                  ...researchSettings,
+                  manualModelProbability: Math.max(1, Math.min(99, Number(event.target.value) || 50))
+                })
+              }
+            />
+          </label>
+          <label>
+            Fee/slippage buffer (%)
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={researchSettings.feeSlippageBufferPercent}
+              onChange={(event) =>
+                void persistResearchSettings({
+                  ...researchSettings,
+                  feeSlippageBufferPercent: Math.max(0, Number(event.target.value) || 0)
+                })
+              }
+            />
+          </label>
+          <label>
+            Minimum edge (%)
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={researchSettings.minimumEdgePercent}
+              onChange={(event) =>
+                void persistResearchSettings({
+                  ...researchSettings,
+                  minimumEdgePercent: Math.max(0, Number(event.target.value) || 0)
+                })
+              }
+            />
+          </label>
+          <label>
+            Max paper trade ($)
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={researchSettings.maxPaperTradeDollars}
+              onChange={(event) =>
+                void persistResearchSettings({
+                  ...researchSettings,
+                  maxPaperTradeDollars: roundCurrency(Math.max(0, Number(event.target.value) || 0))
+                })
+              }
+            />
+          </label>
+          <label>
+            Max daily risk ($)
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={researchSettings.maxDailyRiskDollars}
+              onChange={(event) =>
+                void persistResearchSettings({
+                  ...researchSettings,
+                  maxDailyRiskDollars: roundCurrency(Math.max(0, Number(event.target.value) || 0))
+                })
+              }
+            />
+          </label>
+          <label>
+            Real trading
+            <input value={researchSettings.enableRealTrading ? "Enabled" : "Disabled"} readOnly />
+          </label>
+        </div>
+
+        <div className="research-summary-grid">
+          <div className="stat-card">
+            <div>
+              <div className="stat-label">Best edge</div>
+              <div className="stat-value">{formatSignedPercent(bestResearchPick?.netEdgePercent)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div>
+              <div className="stat-label">Paper P/L</div>
+              <div className="stat-value">{formatDollars(paperTradeStats.totalProfitLossDollars)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div>
+              <div className="stat-label">Win rate</div>
+              <div className="stat-value">{formatPercent(paperTradeStats.winRatePercent)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div>
+              <div className="stat-label">Trades</div>
+              <div className="stat-value">{paperTradeStats.tradeCount}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="research-layout">
+          <div className="research-column">
+            <div className="section-mini-title">Market Scanner</div>
+            <div className="position-note">
+              Uses the current Search Kalshi Markets results. Search in Active, then open this tab to review EV and arb candidates.
+            </div>
+            <div className="positions-list">
+              {researchPicks.length === 0 ? (
+                <article className="position-card">
+                  <div className="position-note">No open markets available for research yet.</div>
+                </article>
+              ) : (
+                researchPicks.map((pick) => (
+                  <article className="position-card research-pick-card" key={pick.marketTicker}>
+                    <div className="position-topline">
+                      <span className="market">{pick.marketTitle}</span>
+                      <span className={`research-ev-badge ${pick.ev.label === "Positive EV" ? "positive" : pick.ev.label === "Negative EV" ? "negative" : ""}`}>
+                        {pick.ev.label}
+                      </span>
+                    </div>
+                    <div className="position-meta">
+                      <span>{pick.marketTicker}</span>
+                      <span>Pick {pick.side}</span>
+                    </div>
+                    <div className="research-metric-grid">
+                      <span>Price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>
+                      <span>Model <strong>{formatPercent(pick.modelProbabilityPercent)}</strong></span>
+                      <span>Edge <strong>{formatSignedPercent(pick.edgePercent)}</strong></span>
+                      <span>Net <strong>{formatSignedPercent(pick.netEdgePercent)}</strong></span>
+                      <span>Max buy <strong>{formatPrice(pick.ev.maxProfitableBuyPriceCents)}</strong></span>
+                      <span>Risk <strong>{formatDollars(pick.suggestedRiskDollars)}</strong></span>
+                    </div>
+                    <div className="research-arb-line">
+                      Arb: total {formatPrice(pick.arb.totalCostCents)} · net {formatSignedPercent(pick.arb.netArbCents)}
+                      {pick.arb.isOpportunity ? " · possible same-market arb" : ""}
+                    </div>
+                    <div className="position-note">{pick.reason}</div>
+                    <div className="combo-result-actions">
+                      <button
+                        type="button"
+                        className="inline-button"
+                        disabled={pick.suggestedRiskDollars <= 0}
+                        onClick={() => void addPaperTradeFromPick(pick)}
+                        title={pick.suggestedRiskDollars <= 0 ? "Needs positive net edge before paper trading" : "Save paper trade"}
+                      >
+                        Paper trade
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="research-column">
+            <div className="section-mini-title">Paper Trading Log</div>
+            <div className="research-metric-grid research-log-stats">
+              <span>Open <strong>{paperTradeStats.openCount}</strong></span>
+              <span>Settled <strong>{paperTradeStats.settledCount}</strong></span>
+              <span>Avg edge <strong>{formatSignedPercent(paperTradeStats.averageEdgePercent)}</strong></span>
+              <span>P/L <strong>{formatDollars(paperTradeStats.totalProfitLossDollars)}</strong></span>
+            </div>
+            <div className="positions-list">
+              {paperTrades.length === 0 ? (
+                <article className="position-card">
+                  <div className="position-note">Paper trades you save from picks will appear here.</div>
+                </article>
+              ) : (
+                paperTrades.map((trade) => (
+                  <article className="position-card" key={trade.id}>
+                    <div className="position-topline">
+                      <span className="market">{trade.marketTitle}</span>
+                      <span className="small-copy">{trade.status}</span>
+                    </div>
+                    <div className="position-meta">
+                      <span>{trade.side} @ {formatPrice(trade.entryPriceCents)}</span>
+                      <span>Risk {formatDollars(trade.suggestedRiskDollars)}</span>
+                    </div>
+                    <div className="position-meta">
+                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · edge {formatSignedPercent(trade.edgePercent)}</span>
+                      <span>{new Date(trade.timestamp).toLocaleString()}</span>
+                    </div>
+                    {trade.status === "open" ? (
+                      <div className="combo-result-actions">
+                        <button
+                          type="button"
+                          className="inline-button"
+                          onClick={() => void settlePaperTrade(trade, 100)}
+                        >
+                          Settle win
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-button muted-button"
+                          onClick={() => void settlePaperTrade(trade, 0)}
+                        >
+                          Settle loss
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="position-note">
+                        Exit {formatPrice(trade.exitValueCents)} · P/L {formatDollars(trade.profitLossDollars)}
+                      </div>
+                    )}
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </section>
 

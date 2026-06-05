@@ -75,7 +75,8 @@ button {
 }
 
 .settled-panel,
-.archived-panel {
+.archived-panel,
+.research-panel {
   order: 2;
 }
 
@@ -120,7 +121,7 @@ button {
 .popup-tabs {
   order: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -347,6 +348,105 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.research-banner {
+  border: 1px solid rgba(240, 180, 76, 0.24);
+  border-radius: 12px;
+  background: rgba(240, 180, 76, 0.1);
+  color: #ffe1a8;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.research-settings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.research-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.research-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 12px;
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.research-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.research-pick-card {
+  border-color: rgba(97, 235, 174, 0.16);
+}
+
+.research-ev-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 173, 210, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #d8e6f4;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.research-ev-badge.positive {
+  background: rgba(97, 235, 174, 0.14);
+  border-color: rgba(97, 235, 174, 0.3);
+  color: #9effd7;
+}
+
+.research-ev-badge.negative {
+  background: rgba(241, 91, 91, 0.14);
+  border-color: rgba(241, 91, 91, 0.26);
+  color: #ffbaba;
+}
+
+.research-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.research-metric-grid span {
+  min-width: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(138, 173, 210, 0.12);
+  color: #bdd2e6;
+  padding: 7px 8px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-metric-grid strong {
+  color: #eef6ff;
+}
+
+.research-arb-line {
+  margin-top: 8px;
+  color: #bdd2e6;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.research-log-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
 }
 
 .combo-leg-editor {
@@ -580,6 +680,10 @@ button {
     min-width: 360px;
   }
 
+  .popup-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .search-row {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -589,6 +693,13 @@ button {
   }
 
   .field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .research-summary-grid,
+  .research-settings-grid,
+  .research-layout,
+  .research-metric-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
