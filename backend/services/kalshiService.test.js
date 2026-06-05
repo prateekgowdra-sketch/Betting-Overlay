@@ -155,3 +155,71 @@ test("marketSortScore prioritizes direct matchup markets over weak event markets
       marketSortScore(ticketMarket, { search: "knicks spurs" })
   );
 });
+
+test("sports search recognizes soccer and World Cup style market text", () => {
+  const market = normalizeTrackedMarket({
+    ticker: "KXWORLDCUPGAME-26JUN12USAMEX-USA",
+    event_ticker: "KXWORLDCUPGAME-26JUN12USAMEX",
+    title: "Will USA beat Mexico in the World Cup?",
+    status: "open",
+    yes_bid_cents: 48,
+    yes_ask_cents: 52,
+    no_bid_cents: 48,
+    no_ask_cents: 52,
+    last_price_cents: 50,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.equal(market.sport, "Soccer");
+  assert.equal(marketMatchesFilter(market, { sport: "soccer", search: "world cup usa mexico" }), true);
+});
+
+test("marketSortScore recognizes hockey as a direct sports line", () => {
+  const directMarket = normalizeTrackedMarket({
+    ticker: "KXNHLGAME-26JUN04NYRFLA-NYR",
+    event_ticker: "KXNHLGAME-26JUN04NYRFLA",
+    title: "Will the Rangers beat the Panthers?",
+    status: "open",
+    yes_bid_cents: 45,
+    yes_ask_cents: 48,
+    no_bid_cents: 52,
+    no_ask_cents: 55,
+    last_price_cents: 46,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+  const genericMarket = normalizeTrackedMarket({
+    ticker: "KXHOCKEYTICKET-26JUN04NYRFLA",
+    event_ticker: "KXHOCKEYTICKET-26JUN04NYRFLA",
+    title: "What will tickets cost for Rangers vs Panthers?",
+    status: "open",
+    yes_bid_cents: 45,
+    yes_ask_cents: 48,
+    no_bid_cents: 52,
+    no_ask_cents: 55,
+    last_price_cents: 46,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.ok(
+    marketSortScore(directMarket, { search: "hockey rangers panthers" }) >
+      marketSortScore(genericMarket, { search: "hockey rangers panthers" })
+  );
+});
+
+test("sport filter supports college football aliases", () => {
+  const market = normalizeTrackedMarket({
+    ticker: "KXNCAAFGAME-26SEP05UGAALA-UGA",
+    event_ticker: "KXNCAAFGAME-26SEP05UGAALA",
+    title: "Will Georgia beat Alabama?",
+    status: "open",
+    yes_bid_cents: 50,
+    yes_ask_cents: 53,
+    no_bid_cents: 47,
+    no_ask_cents: 50,
+    last_price_cents: 52,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.equal(market.sport, "College Football");
+  assert.equal(marketMatchesFilter(market, { sport: "ncaafb", search: "college football georgia alabama" }), true);
+});

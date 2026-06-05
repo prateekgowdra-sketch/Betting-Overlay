@@ -862,17 +862,162 @@ function normalizeTrackedMarket(rawMarket, position = null) {
   };
 }
 
-const SPORTS_MARKET_HINTS = [
-  { key: "nba", label: "NBA", patterns: ["nba", "basketball", "knicks", "cavaliers", "thunder", "spurs"] },
-  { key: "nfl", label: "NFL", patterns: ["nfl", "football", "super bowl"] },
-  { key: "mlb", label: "MLB", patterns: ["mlb", "baseball", "world series"] },
-  { key: "nhl", label: "NHL", patterns: ["nhl", "hockey", "stanley cup"] },
-  { key: "wnba", label: "WNBA", patterns: ["wnba"] },
-  { key: "ncaaf", label: "College Football", patterns: ["ncaaf", "college football"] },
-  { key: "ncaamb", label: "College Basketball", patterns: ["ncaamb", "college basketball", "march madness"] },
-  { key: "soccer", label: "Soccer", patterns: ["soccer", "epl", "premier league", "champions league", "mls", "fifa"] },
-  { key: "tennis", label: "Tennis", patterns: ["tennis", "wimbledon", "us open", "french open", "australian open"] },
-  { key: "golf", label: "Golf", patterns: ["golf", "masters", "pga"] }
+const SPORT_MARKET_DEFINITIONS = [
+  {
+    key: "nba",
+    label: "NBA",
+    patterns: ["nba", "basketball", "knicks", "cavaliers", "thunder", "spurs"],
+    tickerPrefixes: ["NBA"],
+    seriesTickers: ["KXNBA"]
+  },
+  {
+    key: "wnba",
+    label: "WNBA",
+    patterns: ["wnba"],
+    tickerPrefixes: ["WNBA"],
+    seriesTickers: ["KXWNBA"]
+  },
+  {
+    key: "ncaamb",
+    label: "College Basketball",
+    patterns: ["ncaamb", "ncaab", "college basketball", "march madness"],
+    tickerPrefixes: ["NCAAMB", "NCAAB", "CBB"],
+    seriesTickers: ["KXNCAAMB", "KXNCAAB", "KXCBB"]
+  },
+  {
+    key: "ncaafb",
+    label: "College Football",
+    patterns: ["ncaaf", "college football", "cfb", "college football playoff"],
+    tickerPrefixes: ["NCAAF", "CFB"],
+    seriesTickers: ["KXNCAAF", "KXCFB"]
+  },
+  {
+    key: "nfl",
+    label: "NFL",
+    patterns: ["nfl", "football", "super bowl", "afc", "nfc"],
+    tickerPrefixes: ["NFL"],
+    seriesTickers: ["KXNFL"]
+  },
+  {
+    key: "mlb",
+    label: "MLB",
+    patterns: ["mlb", "baseball", "world series"],
+    tickerPrefixes: ["MLB"],
+    seriesTickers: ["KXMLB"]
+  },
+  {
+    key: "nhl",
+    label: "NHL",
+    patterns: ["nhl", "hockey", "stanley cup"],
+    tickerPrefixes: ["NHL"],
+    seriesTickers: ["KXNHL"]
+  },
+  {
+    key: "soccer",
+    label: "Soccer",
+    patterns: [
+      "soccer",
+      "football club",
+      "world cup",
+      "fifa",
+      "mls",
+      "epl",
+      "premier league",
+      "champions league",
+      "uefa",
+      "euros",
+      "la liga",
+      "serie a",
+      "bundesliga",
+      "concacaf",
+      "copa america"
+    ],
+    tickerPrefixes: ["SOCCER", "MLS", "EPL", "UCL", "UEFA", "FIFA", "WCUP", "WORLDCUP", "CONCACAF"],
+    seriesTickers: ["KXSOCCER", "KXMLS", "KXEPL", "KXUCL", "KXUEFA", "KXFIFA", "KXWCUP", "KXWORLDCUP"]
+  },
+  {
+    key: "tennis",
+    label: "Tennis",
+    patterns: ["tennis", "wimbledon", "us open", "french open", "australian open", "atp", "wta"],
+    tickerPrefixes: ["TENNIS", "ATP", "WTA"],
+    seriesTickers: ["KXTENNIS", "KXATP", "KXWTA"]
+  },
+  {
+    key: "golf",
+    label: "Golf",
+    patterns: ["golf", "masters", "pga", "us open", "open championship", "ryder cup"],
+    tickerPrefixes: ["GOLF", "PGA", "MASTERS", "RYDER"],
+    seriesTickers: ["KXGOLF", "KXPGA", "KXMASTERS"]
+  },
+  {
+    key: "mma",
+    label: "MMA",
+    patterns: ["mma", "ufc", "fight night", "mixed martial arts"],
+    tickerPrefixes: ["MMA", "UFC"],
+    seriesTickers: ["KXMMA", "KXUFC"]
+  },
+  {
+    key: "boxing",
+    label: "Boxing",
+    patterns: ["boxing", "boxer", "fight"],
+    tickerPrefixes: ["BOXING", "BOX"],
+    seriesTickers: ["KXBOXING", "KXBOX"]
+  },
+  {
+    key: "racing",
+    label: "Racing",
+    patterns: ["racing", "nascar", "formula 1", "f1", "indycar", "daytona"],
+    tickerPrefixes: ["NASCAR", "F1", "FORMULA1", "INDYCAR", "RACING"],
+    seriesTickers: ["KXNASCAR", "KXF1", "KXFORMULA1", "KXINDYCAR"]
+  },
+  {
+    key: "cricket",
+    label: "Cricket",
+    patterns: ["cricket", "ipl", "t20", "world cup cricket"],
+    tickerPrefixes: ["CRICKET", "IPL", "T20"],
+    seriesTickers: ["KXCRICKET", "KXIPL", "KXT20"]
+  }
+];
+
+const SPORTS_MARKET_HINTS = SPORT_MARKET_DEFINITIONS.map(({ key, label, patterns }) => ({
+  key,
+  label,
+  patterns
+}));
+const SPORT_TICKER_PREFIXES = Array.from(
+  new Set(SPORT_MARKET_DEFINITIONS.flatMap((sport) => sport.tickerPrefixes))
+);
+const SPORT_SERIES_TICKERS = Array.from(
+  new Set(SPORT_MARKET_DEFINITIONS.flatMap((sport) => sport.seriesTickers))
+);
+const DIRECT_SPORTS_LINE_TYPES = [
+  "GAME",
+  "PTS",
+  "REB",
+  "AST",
+  "3PT",
+  "STL",
+  "BLK",
+  "TO",
+  "TOTAL",
+  "SPREAD",
+  "HR",
+  "HIT",
+  "KS",
+  "GOAL",
+  "TD",
+  "PASS",
+  "RUSH",
+  "REC",
+  "SOG",
+  "SAVE",
+  "SET",
+  "MATCH",
+  "WIN",
+  "WINNER",
+  "MONEYLINE",
+  "QUALIFY",
+  "ADVANCE"
 ];
 
 function normalizeFilterValue(value) {
@@ -902,7 +1047,7 @@ function getSearchTokens(value) {
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
 
-  return compact.length >= 4 ? [...tokens, compact] : tokens;
+  return compact.length >= 4 && tokens.length <= 2 ? [...tokens, compact] : tokens;
 }
 
 const GENERIC_SEARCH_TERMS = new Set([
@@ -993,6 +1138,12 @@ const TEAM_SEARCH_ALIASES = {
   bucs: "tb",
   titans: "ten",
   jets: "nyj",
+  ncaaf: "ncaaf",
+  cfb: "cfb",
+  ncaab: "ncaab",
+  ncaamb: "ncaamb",
+  "march": "march madness",
+  madness: "march madness",
   baseball: "xmlb",
   mlb: "xmlb",
   texas: "tex",
@@ -1066,11 +1217,34 @@ const TEAM_SEARCH_ALIASES = {
   caps: "wsh",
   soccer: "soccer",
   futbol: "soccer",
+  "world": "world cup",
+  cup: "world cup",
+  fifa: "fifa",
+  mls: "mls",
   premier: "epl",
   epl: "epl",
   champions: "champions",
+  uefa: "uefa",
+  euros: "uefa",
+  liga: "la liga",
+  bundesliga: "bundesliga",
+  concacaf: "concacaf",
   tennis: "tennis",
+  atp: "atp",
+  wta: "wta",
+  wimbledon: "wimbledon",
   golf: "golf",
+  pga: "pga",
+  masters: "masters",
+  mma: "mma",
+  ufc: "ufc",
+  boxing: "boxing",
+  nascar: "nascar",
+  racing: "racing",
+  "f1": "formula 1",
+  formula: "formula 1",
+  cricket: "cricket",
+  ipl: "ipl",
   wnba: "wnba",
   stephon: "stephon",
   castle: "stephon castle",
@@ -1202,11 +1376,69 @@ function getSearchTeamGroups(value) {
 function getSearchPageBudget(filters = {}) {
   const expandedTokens = getExpandedSearchTokens(filters.search);
 
-  if (expandedTokens.some((token) => ["xmlb", "xnfl", "xnhl", "wnba", "soccer", "tennis", "golf"].includes(token))) {
-    return 4;
+  if (
+    expandedTokens.some((token) =>
+      [
+        "xmlb",
+        "xnfl",
+        "xnhl",
+        "wnba",
+        "ncaaf",
+        "cfb",
+        "ncaab",
+        "ncaamb",
+        "soccer",
+        "world cup",
+        "fifa",
+        "mls",
+        "epl",
+        "uefa",
+        "tennis",
+        "golf",
+        "mma",
+        "ufc",
+        "boxing",
+        "nascar",
+        "racing",
+        "formula 1",
+        "cricket",
+        "ipl"
+      ].includes(token)
+    )
+  ) {
+    return 5;
   }
 
   return filters.search ? 3 : 1;
+}
+
+function getSearchSeriesTickers(filters = {}) {
+  const search = String(filters.search ?? "");
+  const expandedTokens = getExpandedSearchTokens(search);
+  const normalizedSearch = normalizeSearchText(search);
+  const selectedSport = normalizeFilterValue(filters.sport);
+  const matchesSelectedSport = (definition) =>
+    selectedSport &&
+    (normalizeFilterValue(definition.key) === selectedSport ||
+      normalizeFilterValue(definition.label) === selectedSport);
+  const matchesSearch = (definition) =>
+    definition.patterns.some((pattern) => {
+      const normalizedPattern = normalizeSearchText(pattern);
+
+      return (
+        normalizedSearch.includes(normalizedPattern) ||
+        expandedTokens.includes(normalizedPattern) ||
+        expandedTokens.includes(normalizeFilterValue(pattern))
+      );
+    });
+
+  return Array.from(
+    new Set(
+      SPORT_MARKET_DEFINITIONS.filter((definition) =>
+        matchesSelectedSport(definition) || (normalizedSearch && matchesSearch(definition))
+      ).flatMap((definition) => definition.seriesTickers)
+    )
+  );
 }
 
 function marketSearchHaystack(market) {
@@ -1284,10 +1516,30 @@ function extractAssociatedMarketTickers(rawMarket) {
   return Array.from(new Set([...fromCustomStrike, ...fromSelectedLegs]));
 }
 
+function isSportsTicker(ticker) {
+  const normalizedTicker = String(ticker ?? "").toUpperCase();
+
+  return SPORT_TICKER_PREFIXES.some((prefix) => normalizedTicker.startsWith(`KX${prefix}`));
+}
+
 function isDirectSportsLineTicker(ticker) {
-  return /^KX(NBA|WNBA|MLB|NFL|NHL)(GAME|PTS|REB|AST|3PT|STL|BLK|TO|TOTAL|SPREAD|HR|HIT|KS|GOAL|TD|PASS|RUSH|REC)/i.test(
-    ticker
-  );
+  const normalizedTicker = String(ticker ?? "").toUpperCase();
+
+  if (!isSportsTicker(normalizedTicker)) {
+    return false;
+  }
+
+  const withoutKalshiPrefix = normalizedTicker.replace(/^KX/, "");
+
+  return SPORT_TICKER_PREFIXES.some((sportPrefix) => {
+    if (!withoutKalshiPrefix.startsWith(sportPrefix)) {
+      return false;
+    }
+
+    const rest = withoutKalshiPrefix.slice(sportPrefix.length);
+
+    return DIRECT_SPORTS_LINE_TYPES.some((lineType) => rest.startsWith(lineType));
+  });
 }
 
 function marketSortScore(market, filters = {}) {
@@ -1300,8 +1552,9 @@ function marketSortScore(market, filters = {}) {
   const teamGroups = getSearchTeamGroups(filters.search);
   let score = 0;
 
-  if (/KX(NBA|WNBA|MLB|NFL|NHL)GAME/i.test(ticker)) score += 80;
-  if (/KX(NBA|WNBA|MLB|NFL|NHL)(PTS|REB|AST|3PT|STL|BLK|TO|TOTAL|SPREAD|HR|HIT|KS|GOAL|TD|PASS|RUSH|REC)/i.test(ticker)) score += 70;
+  if (isDirectSportsLineTicker(ticker) && /GAME|MATCH|WIN|WINNER/i.test(ticker)) score += 80;
+  if (isDirectSportsLineTicker(ticker)) score += 70;
+  if (isSportsTicker(ticker)) score += 25;
   if (/KXMVE/i.test(ticker)) score -= 60;
   if (/get.?in price|ticket|tickets|attendance/i.test(title)) score -= 80;
 
@@ -1383,6 +1636,7 @@ function deriveSportsMarketMetadata(rawMarket) {
     rawMarket.category,
     rawMarket.series_ticker,
     rawMarket.event_ticker,
+    rawMarket.ticker,
     rawMarket.event_title,
     rawMarket.title,
     rawMarket.subtitle,
@@ -1393,7 +1647,15 @@ function deriveSportsMarketMetadata(rawMarket) {
     .toLowerCase();
   const directSport = typeof rawMarket.sport === "string" ? rawMarket.sport.trim() : "";
   const matchedSport =
-    SPORTS_MARKET_HINTS.find((sport) => includesAny(text, sport.patterns)) ?? null;
+    SPORTS_MARKET_HINTS.map((sport) => {
+      const strongestPattern = sport.patterns
+        .filter((pattern) => text.includes(pattern))
+        .sort((a, b) => b.length - a.length)[0];
+
+      return strongestPattern ? { ...sport, score: strongestPattern.length } : null;
+    })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)[0] ?? null;
   const parsed = parseKalshiMarketTitle(
     rawMarket.title ?? rawMarket.market_title ?? rawMarket.subtitle ?? ""
   );
@@ -1420,8 +1682,29 @@ function marketMatchesFilter(market, filters = {}) {
   const competition = normalizeFilterValue(filters.competition);
   const scope = normalizeFilterValue(filters.scope);
   const searchTokens = getMeaningfulSearchTokens(filters.search);
+  const matchingSportDefinition = SPORT_MARKET_DEFINITIONS.find((definition) => {
+    const filterMatchesDefinition =
+      sport &&
+      (normalizeFilterValue(definition.key) === sport ||
+        normalizeFilterValue(definition.label) === sport);
 
-  if (sport && normalizeFilterValue(market.sport) !== sport) {
+    if (!filterMatchesDefinition) {
+      return false;
+    }
+
+    return (
+      normalizeFilterValue(market.sport) === normalizeFilterValue(definition.label) ||
+      normalizeFilterValue(market.competition) === normalizeFilterValue(definition.label) ||
+      definition.patterns.some((pattern) =>
+        marketSearchHaystack(market).includes(pattern.toLowerCase())
+      ) ||
+      definition.tickerPrefixes.some((prefix) =>
+        String(market.ticker ?? "").toUpperCase().startsWith(`KX${prefix}`)
+      )
+    );
+  });
+
+  if (sport && normalizeFilterValue(market.sport) !== sport && !matchingSportDefinition) {
     return false;
   }
 
@@ -1763,7 +2046,17 @@ class KalshiService {
       limit: query.limit ?? 100,
       status: query.status ?? "open"
     });
-    const sports = new Map();
+    const sports = new Map(
+      SPORT_MARKET_DEFINITIONS.map((sport) => [
+        sport.key,
+        {
+          sportKey: sport.key,
+          sportName: sport.label,
+          competitions: new Set([sport.label]),
+          scopes: new Set()
+        }
+      ])
+    );
 
     for (const market of response.markets) {
       const sportKey = normalizeFilterValue(market.sport);
@@ -1829,9 +2122,37 @@ class KalshiService {
     const pageLimit = filters.search ? 100 : limit;
     const collectedMarkets = [];
     const associatedTickers = new Set();
+    const seenTickers = new Set();
     let cursor = filters.cursor;
     let response = null;
     const maxPages = getSearchPageBudget(filters);
+    const addMarkets = (markets = []) => {
+      for (const market of markets) {
+        if (!market?.ticker || seenTickers.has(market.ticker)) {
+          continue;
+        }
+
+        seenTickers.add(market.ticker);
+        collectedMarkets.push(market);
+      }
+    };
+
+    const seriesTickers = getSearchSeriesTickers(filters);
+
+    for (const seriesTicker of seriesTickers) {
+      try {
+        const seriesResponse = await this.getPublicMarkets({
+          series_ticker: seriesTicker,
+          limit: pageLimit,
+          ...(filters.status ? { status: filters.status } : {})
+        });
+
+        addMarkets(seriesResponse.markets);
+        response = response ?? seriesResponse;
+      } catch {
+        // Some Kalshi sports use event/ticker naming that is not exposed as a series filter.
+      }
+    }
 
     for (let page = 0; page < maxPages; page += 1) {
       response = await this.getPublicMarkets({
@@ -1840,7 +2161,7 @@ class KalshiService {
         ...(filters.status ? { status: filters.status } : {})
       });
 
-      collectedMarkets.push(...response.markets);
+      addMarkets(response.markets);
 
       if (filters.search && response.raw?.markets) {
         const searchTokens = getSearchTokens(filters.search);
@@ -1876,7 +2197,7 @@ class KalshiService {
           limit: Math.min(100, associatedTickers.size)
         });
 
-        collectedMarkets.push(...associatedResponse.markets);
+        addMarkets(associatedResponse.markets);
       } catch {
         // Keep the original market search results if associated lookup is unavailable.
       }
