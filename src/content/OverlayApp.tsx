@@ -14,6 +14,7 @@ import {
   KALSHI_WATCHLIST_KEY,
   OVERLAY_UI_KEY,
   OverlayUiState,
+  saveKalshiComboTrackers,
   saveKalshiWatchlist,
   saveOverlayUiState
 } from "../shared/storage";
@@ -245,11 +246,13 @@ function getBetPerformance(
   item: KalshiWatchlistItem,
   market?: KalshiMarketSnapshot
 ): KalshiBetPerformance {
-  const currentSidePriceCents = getSideProbability(market, item.userSide);
+  const liveSidePriceCents = getSideProbability(market, item.userSide);
+  const isUsingEntryFallback = typeof liveSidePriceCents !== "number";
+  const currentSidePriceCents = liveSidePriceCents ?? item.entryPriceCents;
   const effectiveContracts = getEffectiveContracts(item);
-  const liveQuotePayout =
-    item.amountRisked > 0 && typeof currentSidePriceCents === "number" && currentSidePriceCents > 0
-      ? item.amountRisked / (currentSidePriceCents / 100)
+  const entryPayout =
+    item.amountRisked > 0 && item.entryPriceCents > 0
+      ? item.amountRisked / (item.entryPriceCents / 100)
       : null;
   const movementCents = getProbabilityMovement(
     item.entryPriceCents,
@@ -275,10 +278,11 @@ function getBetPerformance(
         : null,
     estimatedProfitLoss:
       typeof movementCents === "number" ? (effectiveContracts * movementCents) / 100 : null,
-    estimatedPayout: liveQuotePayout,
+    estimatedPayout: entryPayout,
     estimatedMaxProfit:
-      typeof liveQuotePayout === "number" ? liveQuotePayout - item.amountRisked : null,
-    amountRisked: item.amountRisked
+      typeof entryPayout === "number" ? entryPayout - item.amountRisked : null,
+    amountRisked: item.amountRisked,
+    isUsingEntryFallback
   };
 }
 
@@ -360,8 +364,11 @@ type ComboStatus = "live" | "won" | "lost" | "incomplete data";
 
 interface ComboSummary {
   estimatedProbability: number | null;
+  entryProbability: number | null;
   estimatedPayout: number | null;
   estimatedProfit: number | null;
+  estimatedCurrentValue: number | null;
+  estimatedProfitLoss: number | null;
   status: ComboStatus;
   liveCount: number;
   wonCount: number;
@@ -374,7 +381,10 @@ function getComboSummary(
   marketsByTicker: Record<string, KalshiMarketSnapshot>
 ): ComboSummary {
   let probabilityProduct = 1;
-  let hasProbability = combo.legs.length > 0;
+  const entryProbability =
+    combo.legs.length > 0
+      ? combo.legs.reduce((product, leg) => product * (leg.entryPriceCents / 100), 1) * 100
+      : null;
   let liveCount = 0;
   let wonCount = 0;
   let lostCount = 0;
@@ -385,14 +395,14 @@ function getComboSummary(
 
     if (!market) {
       unavailableCount += 1;
-      hasProbability = false;
+      probabilityProduct *= leg.entryPriceCents / 100;
       continue;
     }
 
     if (market.isResolved) {
       if (!market.resultKnown || !market.winningSide) {
         unavailableCount += 1;
-        hasProbability = false;
+        probabilityProduct *= leg.entryPriceCents / 100;
       } else if (market.winningSide === leg.userSide) {
         wonCount += 1;
       } else {
@@ -407,7 +417,7 @@ function getComboSummary(
 
     if (typeof probability !== "number") {
       unavailableCount += 1;
-      hasProbability = false;
+      probabilityProduct *= leg.entryPriceCents / 100;
       continue;
     }
 
@@ -418,23 +428,29 @@ function getComboSummary(
   const status: ComboStatus =
     lostCount > 0
       ? "lost"
-      : unavailableCount > 0
-        ? "incomplete data"
-        : liveCount === 0 && combo.legs.length > 0
+      : liveCount === 0 && combo.legs.length > 0 && unavailableCount === 0
           ? "won"
           : "live";
 
-  const estimatedProbability = hasProbability ? probabilityProduct * 100 : null;
+  const estimatedProbability = combo.legs.length > 0 ? probabilityProduct * 100 : null;
   const estimatedPayout =
-    typeof estimatedProbability === "number" && estimatedProbability > 0
-      ? combo.amountRisked / (estimatedProbability / 100)
+    typeof entryProbability === "number" && entryProbability > 0
+      ? combo.amountRisked / (entryProbability / 100)
+      : null;
+  const estimatedCurrentValue =
+    typeof estimatedPayout === "number" && typeof estimatedProbability === "number"
+      ? estimatedPayout * (estimatedProbability / 100)
       : null;
 
   return {
     estimatedProbability,
+    entryProbability,
     estimatedPayout,
     estimatedProfit:
       typeof estimatedPayout === "number" ? estimatedPayout - combo.amountRisked : null,
+    estimatedCurrentValue,
+    estimatedProfitLoss:
+      typeof estimatedCurrentValue === "number" ? estimatedCurrentValue - combo.amountRisked : null,
     status,
     liveCount,
     wonCount,
@@ -484,6 +500,10 @@ function getMarketAlerts(
     alerts.push(performance.movementCents > 0 ? "Big move" : "Dropping");
   }
 
+  if (performance.isUsingEntryFallback && !market?.isResolved) {
+    alerts.push("Using entry");
+  }
+
   if (isClosingSoon(market)) {
     alerts.push("Closing soon");
   }
@@ -504,12 +524,14 @@ function getComboAlerts(combo: KalshiComboTracker, summary: ComboSummary): strin
 
   if (summary.status === "won") alerts.push("Won");
   if (summary.status === "lost") alerts.push("Lost");
+  if (summary.unavailableCount > 0 && summary.status === "live") alerts.push("Using entry");
   if (summary.status === "incomplete data") alerts.push("Stale");
 
-  const entryProduct = combo.legs.reduce((product, leg) => product * (leg.entryPriceCents / 100), 1) * 100;
-
   if (typeof summary.estimatedProbability === "number" && combo.legs.length > 0) {
-    const movement = summary.estimatedProbability - entryProduct;
+    const movement =
+      typeof summary.entryProbability === "number"
+        ? summary.estimatedProbability - summary.entryProbability
+        : 0;
 
     if (Math.abs(movement) >= 10) {
       alerts.push(movement > 0 ? "Big move" : "Dropping");
@@ -538,7 +560,7 @@ function renderComboTickerLabel(
   summary: ComboSummary
 ): string {
   const primaryAlert = getComboAlerts(combo, summary)[0];
-  return `${truncateTitle(combo.name)} | Risk ${formatDollars(combo.amountRisked)} | Est. ${formatComboProbability(summary.estimatedProbability)} | Pays ~${formatDollars(summary.estimatedPayout)} | ${primaryAlert ?? summary.status}`;
+  return `${truncateTitle(combo.name)} | Risk ${formatDollars(combo.amountRisked)} | Est. ${formatComboProbability(summary.estimatedProbability)} | Payout ${formatDollars(summary.estimatedPayout)} | ${primaryAlert ?? summary.status}`;
 }
 
 function formatLiveContextSnippet(liveContext?: KalshiLiveContext): string {
@@ -791,6 +813,22 @@ export function OverlayApp() {
     await saveKalshiWatchlist(nextWatchlist);
   }
 
+  async function archiveComboTracker(comboId: string) {
+    const now = new Date().toISOString();
+    const nextComboTrackers = comboTrackers.map((combo) =>
+      combo.id === comboId
+        ? {
+            ...combo,
+            archived: true,
+            updatedAt: now
+          }
+        : combo
+    );
+
+    setComboTrackers(nextComboTrackers);
+    await saveKalshiComboTrackers(nextComboTrackers);
+  }
+
   const watchedMarkets = useMemo(
     () =>
       watchlist
@@ -830,8 +868,8 @@ export function OverlayApp() {
       0
     );
     const comboRisk = comboSummaries.reduce((sum, entry) => sum + entry.combo.amountRisked, 0);
-    const comboValue = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedPayout ?? 0), 0);
-    const comboProfit = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedProfit ?? 0), 0);
+    const comboValue = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedCurrentValue ?? 0), 0);
+    const comboProfit = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedProfitLoss ?? 0), 0);
 
     return {
       totalRisk: watchedRisk + comboRisk,
@@ -902,7 +940,7 @@ export function OverlayApp() {
             <span className="klo-info-chip klo-title-chip">Market Tracker</span>
             <span className="klo-info-chip">{watchCount} watched</span>
             <span className="klo-info-chip klo-portfolio-chip">
-              Portfolio | Risk {formatDollars(portfolioSummary.totalRisk)} | Est. value {formatDollars(portfolioSummary.estimatedValue)} | P/L {formatDollars(portfolioSummary.profitLoss)}
+              Portfolio | Risk {formatDollars(portfolioSummary.totalRisk)} | Cashout {formatDollars(portfolioSummary.estimatedValue)}
             </span>
           </div>
 
@@ -1032,12 +1070,8 @@ export function OverlayApp() {
               <strong>{formatDollars(portfolioSummary.totalRisk)}</strong>
             </div>
             <div className="klo-scoreboard-row">
-              <span>Estimated value</span>
+              <span>Current cashout</span>
               <strong>{formatDollars(portfolioSummary.estimatedValue)}</strong>
-            </div>
-            <div className="klo-scoreboard-row">
-              <span>Approx P/L</span>
-              <strong>{formatDollars(portfolioSummary.profitLoss)}</strong>
             </div>
             <div className="klo-summary-chips">
               <span className="klo-summary-chip is-live">{portfolioSummary.activeMarkets} active markets</span>
@@ -1096,21 +1130,30 @@ export function OverlayApp() {
                 const trackedPosition = market?.position ?? null;
                 const yesProbability = getYesProbability(market);
                 const noProbability = getNoProbability(market);
-                const currentProbability = getSideProbability(market, item.userSide);
+                const currentProbability = performance.currentSidePriceCents;
                 const marketUpdatedAt = market?.dataQuality?.lastUpdated ?? market?.updatedAt;
                 const isMarketDataUnavailable = !market;
                 const isResolved = isResolvedMarket(market);
                 const resultLabel = getResultLabel(market);
                 const alerts = getMarketAlerts(market, performance, item.userSide);
 
-                return (
-                  <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
-                    <div className="klo-card-topline">
-                      <div className="klo-card-title">{getDisplayTitle(item)}</div>
-                      <span className={`klo-status-badge ${statusTone(getLifecycleLabel(market))}`}>
-                        {getLifecycleLabel(market)}
-                      </span>
-                    </div>
+	                return (
+	                  <article className={`klo-position-card klo-manual-leg-card ${tone}`} key={item.ticker}>
+	                    <div className="klo-card-topline">
+	                      <div className="klo-card-title">{getDisplayTitle(item)}</div>
+	                      <div className="klo-card-action-cluster">
+	                        <span className={`klo-status-badge ${statusTone(getLifecycleLabel(market))}`}>
+	                          {getLifecycleLabel(market)}
+	                        </span>
+	                        <button
+	                          type="button"
+	                          className="klo-small-action"
+	                          onClick={() => void hideWatchedMarket(item.ticker)}
+	                        >
+	                          Remove
+	                        </button>
+	                      </div>
+	                    </div>
 
                     {alerts.length > 0 ? (
                       <div className="klo-alert-row">
@@ -1173,7 +1216,13 @@ export function OverlayApp() {
                             <strong>{formatKalshiPriceAsPercent(item.entryPriceCents)}</strong>
                           </div>
                           <div className="klo-primary-row">
-                            <span>{isResolved ? "Final" : "Current"}</span>
+                            <span>
+                              {isResolved
+                                ? "Final"
+                                : performance.isUsingEntryFallback
+                                  ? "Current (entry)"
+                                  : "Current live"}
+                            </span>
                             <strong>{formatKalshiPriceAsPercent(currentProbability)}</strong>
                           </div>
                           <div className="klo-primary-row">
@@ -1187,12 +1236,8 @@ export function OverlayApp() {
                             <strong>{formatDollars(performance.amountRisked)}</strong>
                           </div>
                           <div className="klo-primary-row">
-                            <span>Est. value</span>
+                            <span>Current cashout</span>
                             <strong>{formatDollars(performance.estimatedCurrentValue)}</strong>
-                          </div>
-                          <div className="klo-primary-row">
-                            <span>Approx P/L</span>
-                            <strong>{formatDollars(performance.estimatedProfitLoss)}</strong>
                           </div>
                           <div className="klo-primary-row">
                             <span>Last updated</span>
@@ -1221,6 +1266,10 @@ export function OverlayApp() {
                         <span>{item.eventTicker ?? market?.eventTicker ?? "--"}</span>
                       </div>
                       <div className="klo-card-meta">
+                        <span>Price source</span>
+                        <span>{performance.isUsingEntryFallback ? "Using entry price" : "Live Kalshi price"}</span>
+                      </div>
+                      <div className="klo-card-meta">
                         <span>YES bid / ask</span>
                         <span>{formatPrice(market?.yesBidCents)} / {formatPrice(market?.yesAskCents)}</span>
                       </div>
@@ -1241,11 +1290,11 @@ export function OverlayApp() {
                         <span>{item.contracts}</span>
                       </div>
                       <div className="klo-card-meta">
-                        <span>Live quote payout</span>
+                        <span>Entry payout</span>
                         <span>{formatDollars(performance.estimatedPayout)}</span>
                       </div>
                       <div className="klo-card-meta">
-                        <span>Live quote profit</span>
+                        <span>Entry max profit</span>
                         <span>{formatDollars(performance.estimatedMaxProfit)}</span>
                       </div>
                       {trackedPosition ? (
@@ -1296,14 +1345,23 @@ export function OverlayApp() {
               {comboSummaries.map(({ combo, summary }) => {
                 const alerts = getComboAlerts(combo, summary);
 
-                return (
-                <article className={`klo-position-card klo-combo-card ${comboTone(summary.status)}`} key={combo.id}>
-                  <div className="klo-card-topline">
-                    <div className="klo-card-title">{combo.name}</div>
-                    <span className={`klo-status-badge ${comboTone(summary.status)}`}>
-                      {summary.status}
-                    </span>
-                  </div>
+	                return (
+	                  <article className={`klo-position-card klo-combo-card ${comboTone(summary.status)}`} key={combo.id}>
+	                    <div className="klo-card-topline">
+	                      <div className="klo-card-title">{combo.name}</div>
+	                      <div className="klo-card-action-cluster">
+	                        <span className={`klo-status-badge ${comboTone(summary.status)}`}>
+	                          {summary.status}
+	                        </span>
+	                        <button
+	                          type="button"
+	                          className="klo-small-action"
+	                          onClick={() => void archiveComboTracker(combo.id)}
+	                        >
+	                          Remove
+	                        </button>
+	                      </div>
+	                    </div>
                   {alerts.length > 0 ? (
                     <div className="klo-alert-row">
                       {alerts.map((alert) => (
@@ -1317,15 +1375,27 @@ export function OverlayApp() {
                       <strong>{formatDollars(combo.amountRisked)}</strong>
                     </div>
                     <div className="klo-primary-row">
-                      <span>Est. combo chance</span>
+                      <span>
+                        {summary.unavailableCount > 0
+                          ? "Current combo chance (entry)"
+                          : "Current combo chance"}
+                      </span>
                       <strong>{formatComboProbability(summary.estimatedProbability)}</strong>
                     </div>
                     <div className="klo-primary-row">
-                      <span>Est. payout</span>
+                      <span>Entry combo chance</span>
+                      <strong>{formatComboProbability(summary.entryProbability)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
+                      <span>Entry payout</span>
                       <strong>{formatDollars(summary.estimatedPayout)}</strong>
                     </div>
                     <div className="klo-primary-row">
-                      <span>Est. profit</span>
+                      <span>Current cashout</span>
+                      <strong>{formatDollars(summary.estimatedCurrentValue)}</strong>
+                    </div>
+                    <div className="klo-primary-row">
+                      <span>Entry profit</span>
                       <strong>{formatDollars(summary.estimatedProfit)}</strong>
                     </div>
                     <div className="klo-primary-row">
@@ -1342,12 +1412,14 @@ export function OverlayApp() {
                     ) : (
                       combo.legs.map((leg) => {
                         const market = marketsByTicker[leg.ticker];
-                        const currentProbability = getSideProbability(market, leg.userSide);
+                        const liveProbability = getSideProbability(market, leg.userSide);
+                        const currentProbability = liveProbability ?? leg.entryPriceCents;
                         const movement = getProbabilityMovement(
                           leg.entryPriceCents,
                           currentProbability,
                           leg.userSide
                         );
+                        const isUsingEntryFallback = typeof liveProbability !== "number";
                         const resolvedResult =
                           market?.isResolved && market.resultKnown && market.winningSide
                             ? market.winningSide === leg.userSide
@@ -1355,7 +1427,9 @@ export function OverlayApp() {
                               : "lost"
                             : market?.isResolved
                               ? "result unknown"
-                              : getLifecycleLabel(market);
+                              : isUsingEntryFallback
+                                ? "using entry"
+                                : getLifecycleLabel(market);
                         const tone =
                           resolvedResult === "won"
                             ? "is-good"

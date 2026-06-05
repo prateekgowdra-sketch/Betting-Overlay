@@ -198,6 +198,7 @@ export interface KalshiBetPerformance {
   estimatedPayout: number | null;
   estimatedMaxProfit: number | null;
   amountRisked: number;
+  isUsingEntryFallback?: boolean;
 }
 
 export interface KalshiLiveContext {

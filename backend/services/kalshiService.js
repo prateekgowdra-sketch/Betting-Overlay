@@ -1558,15 +1558,14 @@ function getMarketDataStatus(market, fetchedAt = getNowIso()) {
     return market.lifecycleStatus === "settled" ? "settled" : "finalized";
   }
 
-  const updatedAt = market.updatedAt ? new Date(market.updatedAt).getTime() : NaN;
+  const hasTradablePrice =
+    typeof market.yesBidCents === "number" ||
+    typeof market.yesAskCents === "number" ||
+    typeof market.noBidCents === "number" ||
+    typeof market.noAskCents === "number" ||
+    typeof market.lastPriceCents === "number";
 
-  if (Number.isNaN(updatedAt)) {
-    return "live";
-  }
-
-  const ageMs = new Date(fetchedAt).getTime() - updatedAt;
-
-  return ageMs > 5 * 60 * 1000 ? "stale" : "live";
+  return hasTradablePrice ? "live" : "unavailable";
 }
 
 function buildUnavailableMarket(ticker, reason, timestamp = getNowIso()) {
@@ -1908,18 +1907,33 @@ class KalshiService {
   }
 
   async getFreshPublicMarketsByTicker(tickers = []) {
-    const markets = await Promise.all(
-      tickers.map(async (ticker) => {
-        try {
-          const response = await this.getPublicMarket(ticker);
-          return response.market ?? null;
-        } catch {
-          return null;
-        }
-      })
-    );
+    const uniqueTickers = Array.from(new Set(tickers.filter(Boolean)));
 
-    return markets.filter(Boolean);
+    if (uniqueTickers.length === 0) {
+      return [];
+    }
+
+    try {
+      const response = await this.getPublicMarkets({
+        tickers: uniqueTickers.join(","),
+        limit: Math.min(100, uniqueTickers.length)
+      });
+
+      return response.markets;
+    } catch {
+      const markets = await Promise.all(
+        uniqueTickers.map(async (ticker) => {
+          try {
+            const response = await this.getPublicMarket(ticker);
+            return response.market ?? null;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      return markets.filter(Boolean);
+    }
   }
 
   async getPublicMarket(ticker) {

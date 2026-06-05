@@ -655,6 +655,10 @@ export function PopupApp() {
     }));
   }
 
+  async function removeComboTracker(comboId: string) {
+    await archiveComboTracker(comboId);
+  }
+
   async function restoreComboTracker(comboId: string) {
     await updateComboTracker(comboId, (combo) => ({
       ...combo,
@@ -1120,16 +1124,25 @@ export function PopupApp() {
           ) : (
             savedComboTrackers.map((combo) => (
                 <article className="position-card" key={combo.id}>
-                  <div className="position-topline">
-                    <span className="market">{combo.name}</span>
-                    <button
-                      type="button"
-                      className="inline-button muted-button"
-                      onClick={() => void archiveComboTracker(combo.id)}
-                    >
-                      Archive
-                    </button>
-                  </div>
+	                  <div className="position-topline">
+	                    <span className="market">{combo.name}</span>
+	                    <div className="combo-result-actions">
+	                      <button
+	                        type="button"
+	                        className="inline-button muted-button"
+	                        onClick={() => void archiveComboTracker(combo.id)}
+	                      >
+	                        Archive
+	                      </button>
+	                      <button
+	                        type="button"
+	                        className="inline-button muted-button"
+	                        onClick={() => void removeComboTracker(combo.id)}
+	                      >
+	                        Remove
+	                      </button>
+	                    </div>
+	                  </div>
                   <div className="position-meta">
                     <span>{combo.legs.length} leg{combo.legs.length === 1 ? "" : "s"}</span>
                     <span>Risk {formatDollars(combo.amountRisked)}</span>
