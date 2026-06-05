@@ -201,6 +201,13 @@
   text-overflow: ellipsis;
 }
 
+.klo-research-chip {
+  flex: 0 1 auto;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .klo-portfolio-chip > span {
   min-width: 0;
   overflow: hidden;
@@ -888,6 +895,10 @@
     max-width: 190px;
   }
 
+  .klo-research-chip {
+    max-width: 220px;
+  }
+
   .klo-portfolio-full {
     display: none;
   }
@@ -940,6 +951,10 @@
 
   .klo-portfolio-chip {
     max-width: 118px;
+  }
+
+  .klo-research-chip {
+    display: none;
   }
 
   .klo-updated-chip {

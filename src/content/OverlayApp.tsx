@@ -13,16 +13,24 @@ import {
   AppSettings,
   getAppSettings,
   getKalshiComboTrackers,
+  getResearchPaperTrades,
+  getResearchSettings,
   getKalshiWatchlist,
   getOverlayUiState,
   KALSHI_COMBO_TRACKERS_KEY,
   KALSHI_WATCHLIST_KEY,
   OVERLAY_UI_KEY,
   OverlayUiState,
+  RESEARCH_PAPER_TRADES_KEY,
+  RESEARCH_SETTINGS_KEY,
   saveKalshiComboTrackers,
   saveKalshiWatchlist,
   saveOverlayUiState
 } from "../shared/storage";
+import {
+  generateResearchPick,
+  summarizePaperTrades
+} from "../shared/research";
 import {
   KalshiBetMovementStatus,
   KalshiBetPerformance,
@@ -32,7 +40,9 @@ import {
   KalshiMarketSnapshot,
   KalshiOverlayState,
   KalshiWatchlistItem,
-  OverlayStatus
+  OverlayStatus,
+  ResearchPaperTrade,
+  ResearchSettings
 } from "../shared/types";
 
 function isExtensionContextInvalidated(error: unknown): boolean {
@@ -680,6 +690,8 @@ export function OverlayApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
   const [comboTrackers, setComboTrackers] = useState<KalshiComboTracker[]>([]);
+  const [researchSettings, setResearchSettings] = useState<ResearchSettings | null>(null);
+  const [paperTrades, setPaperTrades] = useState<ResearchPaperTrade[]>([]);
   const [marketsByTicker, setMarketsByTicker] = useState<Record<string, KalshiMarketSnapshot>>({});
   const [backendStatus, setBackendStatus] = useState<BackendStatusResponse | null>(null);
   const [overlayState, setOverlayState] = useState<KalshiOverlayState | null>(null);
@@ -695,13 +707,17 @@ export function OverlayApp() {
       getAppSettings(),
       getKalshiWatchlist(),
       getKalshiComboTrackers(),
+      getResearchSettings(),
+      getResearchPaperTrades(),
       backendApi.getBackendStatus().catch(() => null)
     ])
-      .then(([nextUiState, nextSettings, nextWatchlist, nextComboTrackers, nextBackendStatus]) => {
+      .then(([nextUiState, nextSettings, nextWatchlist, nextComboTrackers, nextResearchSettings, nextPaperTrades, nextBackendStatus]) => {
         setUiState(nextUiState);
         setSettings(nextSettings);
         setWatchlist(nextWatchlist);
         setComboTrackers(nextComboTrackers);
+        setResearchSettings(nextResearchSettings);
+        setPaperTrades(nextPaperTrades);
         setBackendStatus(nextBackendStatus);
       })
       .catch((error) => {
@@ -734,6 +750,14 @@ export function OverlayApp() {
 
       if (changes[KALSHI_COMBO_TRACKERS_KEY]?.newValue) {
         setComboTrackers(changes[KALSHI_COMBO_TRACKERS_KEY].newValue as KalshiComboTracker[]);
+      }
+
+      if (changes[RESEARCH_SETTINGS_KEY]?.newValue) {
+        setResearchSettings(changes[RESEARCH_SETTINGS_KEY].newValue as ResearchSettings);
+      }
+
+      if (changes[RESEARCH_PAPER_TRADES_KEY]?.newValue) {
+        setPaperTrades(changes[RESEARCH_PAPER_TRADES_KEY].newValue as ResearchPaperTrade[]);
       }
     };
 
@@ -951,6 +975,27 @@ export function OverlayApp() {
       settledCount: finalizedWatchedMarkets.length
     };
   }, [watchedMarkets, activeWatchedMarkets.length, finalizedWatchedMarkets.length, comboSummaries]);
+  const researchTickerSummary = useMemo(() => {
+    const paperTradeAnalytics = summarizePaperTrades(paperTrades);
+    const picks = researchSettings
+      ? activeWatchedMarkets
+          .filter(({ market }) => market && !market.isResolved)
+          .map(({ market }) => generateResearchPick(market!, researchSettings))
+      : [];
+    const bestPick = picks.reduce<(typeof picks)[number] | null>(
+      (best, pick) =>
+        !best || (pick.netEdgePercent ?? -Infinity) > (best.netEdgePercent ?? -Infinity)
+          ? pick
+          : best,
+      null
+    );
+
+    return {
+      bestEdge: bestPick?.netEdgePercent ?? null,
+      pickCount: picks.length,
+      paperProfitLoss: paperTradeAnalytics.stats.totalProfitLossDollars
+    };
+  }, [activeWatchedMarkets, paperTrades, researchSettings]);
   const watchCount = watchedMarkets.length;
   const totalPositionCount =
     overlayState?.positions.filter((position) => position.contracts > 0).length ??
@@ -1053,6 +1098,12 @@ export function OverlayApp() {
             <div className={`klo-ticker-message ${tickerStatusTone}`} title={tickerStatusText}>
               <span>{tickerStatusText}</span>
             </div>
+            <span
+              className="klo-info-chip klo-research-chip"
+              title={`Research | Best edge ${formatEdge(researchTickerSummary.bestEdge)} | Picks ${researchTickerSummary.pickCount} | Paper P/L ${formatDollars(researchTickerSummary.paperProfitLoss)}`}
+            >
+              Research | Best {formatEdge(researchTickerSummary.bestEdge)} | Picks {researchTickerSummary.pickCount} | P/L {formatDollars(researchTickerSummary.paperProfitLoss)}
+            </span>
           </div>
 
           <div className="klo-ticker-right">

@@ -5,15 +5,26 @@ import {
   ResearchPaperTrade,
   ResearchSettings
 } from "./types";
+import {
+  DetailedPaperTradeStats,
+  exportResearchTradesAsCsv,
+  exportResearchTradesAsJson,
+  getCalibrationBuckets,
+  getCategoryBuckets,
+  getEdgeBuckets,
+  ResearchBucket,
+  settleResearchPaperTrade,
+  summarizeDetailedPaperTrades
+} from "./researchAnalytics";
 
 export interface EvCalculation {
   side: KalshiMarketSide;
   marketPriceCents: number | null;
-  modelProbabilityPercent: number;
+  modelProbabilityPercent: number | null;
   edgePercent: number | null;
   netEdgePercent: number | null;
   expectedValueCents: number | null;
-  maxProfitableBuyPriceCents: number;
+  maxProfitableBuyPriceCents: number | null;
   label: "Positive EV" | "Neutral" | "Negative EV" | "Unavailable";
 }
 
@@ -29,25 +40,27 @@ export interface ArbitrageScan {
 export interface ResearchPick {
   marketTicker: string;
   marketTitle: string;
+  marketCategory: string;
   side: KalshiMarketSide;
   currentPriceCents: number | null;
-  modelProbabilityPercent: number;
+  modelProbabilityPercent: number | null;
   edgePercent: number | null;
   netEdgePercent: number | null;
   confidence: "Low" | "Medium" | "High";
   suggestedRiskDollars: number;
   reason: string;
+  positiveSignal: string;
+  negativeSignal: string;
+  source: "manual" | "heuristic" | "arb_scanner";
   ev: EvCalculation;
   arb: ArbitrageScan;
 }
 
-export interface PaperTradeStats {
-  totalProfitLossDollars: number;
-  winRatePercent: number | null;
-  averageEdgePercent: number | null;
-  tradeCount: number;
-  openCount: number;
-  settledCount: number;
+export interface ResearchAnalytics {
+  stats: DetailedPaperTradeStats;
+  calibrationBuckets: ResearchBucket[];
+  edgeBuckets: ResearchBucket[];
+  categoryBuckets: ResearchBucket[];
 }
 
 const DEFAULT_RISK_DIVISOR = 4;
@@ -78,6 +91,85 @@ function getBestBid(market: KalshiMarketSnapshot, side: KalshiMarketSide): numbe
   return side === "YES" ? market.yesBidCents : market.noBidCents;
 }
 
+function inferMarketCategory(market: KalshiMarketSnapshot): string {
+  const text = [
+    market.sport,
+    market.competition,
+    market.scope,
+    market.eventTitle,
+    market.title
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/nba|nfl|mlb|nhl|soccer|football|basketball|baseball|tennis|golf|sports?|racing|mma/.test(text)) {
+    return "sports";
+  }
+
+  if (/election|candidate|senate|congress|president|politic/.test(text)) {
+    return "politics";
+  }
+
+  if (/fed|inflation|cpi|gdp|recession|rate|econom/.test(text)) {
+    return "economics";
+  }
+
+  if (/weather|temperature|rain|snow|hurricane|storm/.test(text)) {
+    return "weather";
+  }
+
+  if (/bitcoin|crypto|ethereum|btc|eth/.test(text)) {
+    return "crypto";
+  }
+
+  return "other";
+}
+
+function getPositiveSignal(
+  netEdge: number | null,
+  arb: ArbitrageScan,
+  confidence: ResearchPick["confidence"]
+): string {
+  if (arb.isOpportunity) {
+    return "same-market arb signal";
+  }
+
+  if (typeof netEdge === "number" && netEdge > 0) {
+    return "positive net edge after buffer";
+  }
+
+  if (confidence === "High") {
+    return "higher model confidence";
+  }
+
+  return "watchlist candidate";
+}
+
+function getNegativeSignal(
+  netEdge: number | null,
+  arb: ArbitrageScan,
+  confidence: ResearchPick["confidence"]
+): string {
+  if (typeof netEdge !== "number") {
+    return "missing current market price";
+  }
+
+  if (netEdge <= 0) {
+    return "edge does not clear buffer";
+  }
+
+  if (!arb.isOpportunity && typeof arb.totalCostCents === "number" && arb.totalCostCents >= 100) {
+    return "no same-market arb";
+  }
+
+  if (confidence === "Low") {
+    return "low model confidence";
+  }
+
+  return "execution risk";
+}
+
 export function getDefaultResearchSettings(): ResearchSettings {
   return {
     enableRealTrading: false,
@@ -92,24 +184,30 @@ export function getDefaultResearchSettings(): ResearchSettings {
 export function calculateEv(
   market: KalshiMarketSnapshot,
   side: KalshiMarketSide,
-  modelProbabilityPercent: number,
+  modelProbabilityPercent: number | null,
   feeSlippageBufferPercent: number
 ): EvCalculation {
   const marketPriceCents = getSidePrice(market, side);
   const sideModelProbability =
-    side === "YES" ? modelProbabilityPercent : 100 - modelProbabilityPercent;
+    typeof modelProbabilityPercent === "number"
+      ? side === "YES"
+        ? modelProbabilityPercent
+        : 100 - modelProbabilityPercent
+      : null;
   const edgePercent =
-    typeof marketPriceCents === "number" ? roundTenth(sideModelProbability - marketPriceCents) : null;
+    typeof marketPriceCents === "number" && typeof sideModelProbability === "number"
+      ? roundTenth(sideModelProbability - marketPriceCents)
+      : null;
   const netEdgePercent =
     typeof edgePercent === "number" ? roundTenth(edgePercent - feeSlippageBufferPercent) : null;
   const expectedValueCents =
-    typeof marketPriceCents === "number"
+    typeof marketPriceCents === "number" && typeof sideModelProbability === "number"
       ? roundTenth(sideModelProbability - marketPriceCents)
       : null;
-  const maxProfitableBuyPriceCents = Math.max(
-    0,
-    Math.min(100, roundTenth(sideModelProbability - feeSlippageBufferPercent))
-  );
+  const maxProfitableBuyPriceCents =
+    typeof sideModelProbability === "number"
+      ? Math.max(0, Math.min(100, roundTenth(sideModelProbability - feeSlippageBufferPercent)))
+      : null;
   const label =
     typeof netEdgePercent !== "number"
       ? "Unavailable"
@@ -122,7 +220,8 @@ export function calculateEv(
   return {
     side,
     marketPriceCents,
-    modelProbabilityPercent: roundTenth(sideModelProbability),
+    modelProbabilityPercent:
+      typeof sideModelProbability === "number" ? roundTenth(sideModelProbability) : null,
     edgePercent,
     netEdgePercent,
     expectedValueCents,
@@ -164,10 +263,12 @@ export function generateResearchPick(
   manualProbability?: number
 ): ResearchPick {
   const heuristic = forecastMarketEdge(market, "YES", getSidePrice(market, "YES"));
+  const isManualProbability = typeof manualProbability === "number" && Number.isFinite(manualProbability);
+  const marketYesProbability = getSidePrice(market, "YES");
   const modelProbabilityPercent =
-    typeof manualProbability === "number" && Number.isFinite(manualProbability)
+    isManualProbability
       ? Math.max(1, Math.min(99, manualProbability))
-      : heuristic.fairYesProbability;
+      : heuristic.fairYesProbability ?? marketYesProbability;
   const yesEv = calculateEv(market, "YES", modelProbabilityPercent, settings.feeSlippageBufferPercent);
   const noEv = calculateEv(market, "NO", modelProbabilityPercent, settings.feeSlippageBufferPercent);
   const selectedEv =
@@ -185,10 +286,15 @@ export function generateResearchPick(
     `confidence ${confidence}`,
     heuristic.movementForecast.toLowerCase()
   ];
+  const arb = scanSameMarketArbitrage(market, settings.feeSlippageBufferPercent);
+  const source = arb.isOpportunity ? "arb_scanner" : isManualProbability ? "manual" : "heuristic";
+  const positiveSignal = getPositiveSignal(selectedEv.netEdgePercent, arb, confidence);
+  const negativeSignal = getNegativeSignal(selectedEv.netEdgePercent, arb, confidence);
 
   return {
     marketTicker: market.ticker,
     marketTitle: market.displayTitle || market.title,
+    marketCategory: inferMarketCategory(market),
     side: selectedEv.side,
     currentPriceCents: selectedEv.marketPriceCents,
     modelProbabilityPercent: selectedEv.modelProbabilityPercent,
@@ -196,27 +302,32 @@ export function generateResearchPick(
     netEdgePercent: selectedEv.netEdgePercent,
     confidence,
     suggestedRiskDollars,
-    reason: reasonParts.join(" · "),
+    reason: [...reasonParts, positiveSignal, negativeSignal].join(" · "),
+    positiveSignal,
+    negativeSignal,
+    source,
     ev: selectedEv,
-    arb: scanSameMarketArbitrage(market, settings.feeSlippageBufferPercent)
+    arb
   };
 }
 
-export function summarizePaperTrades(trades: ResearchPaperTrade[]): PaperTradeStats {
-  const settledTrades = trades.filter((trade) => trade.status === "settled");
-  const winningTrades = settledTrades.filter((trade) => (trade.profitLossDollars ?? 0) > 0);
-  const edges = trades.map((trade) => trade.edgePercent).filter((edge) => Number.isFinite(edge));
-
+export function settlePaperTrade(
+  trade: ResearchPaperTrade,
+  exitValueCents: number
+): ResearchPaperTrade {
   return {
-    totalProfitLossDollars: roundCents(
-      settledTrades.reduce((sum, trade) => sum + (trade.profitLossDollars ?? 0), 0)
-    ),
-    winRatePercent:
-      settledTrades.length > 0 ? roundTenth((winningTrades.length / settledTrades.length) * 100) : null,
-    averageEdgePercent:
-      edges.length > 0 ? roundTenth(edges.reduce((sum, edge) => sum + edge, 0) / edges.length) : null,
-    tradeCount: trades.length,
-    openCount: trades.filter((trade) => trade.status === "open").length,
-    settledCount: settledTrades.length
+    ...settleResearchPaperTrade(trade, exitValueCents),
+    settledAt: new Date().toISOString()
   };
 }
+
+export function summarizePaperTrades(trades: ResearchPaperTrade[]): ResearchAnalytics {
+  return {
+    stats: summarizeDetailedPaperTrades(trades),
+    calibrationBuckets: getCalibrationBuckets(trades),
+    edgeBuckets: getEdgeBuckets(trades),
+    categoryBuckets: getCategoryBuckets(trades)
+  };
+}
+
+export { exportResearchTradesAsCsv, exportResearchTradesAsJson };

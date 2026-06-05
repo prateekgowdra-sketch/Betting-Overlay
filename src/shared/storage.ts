@@ -444,11 +444,23 @@ export async function getResearchPaperTrades(): Promise<ResearchPaperTrade[]> {
           typeof trade.edgePercent === "number" && Number.isFinite(trade.edgePercent)
             ? trade.edgePercent
             : 0,
+        netEdgePercent:
+          typeof trade.netEdgePercent === "number" && Number.isFinite(trade.netEdgePercent)
+            ? trade.netEdgePercent
+            : null,
         suggestedRiskDollars:
           typeof trade.suggestedRiskDollars === "number" && Number.isFinite(trade.suggestedRiskDollars)
             ? Math.max(0, trade.suggestedRiskDollars)
             : 0,
         status: trade.status === "settled" ? "settled" : "open",
+        marketCategory: typeof trade.marketCategory === "string" ? trade.marketCategory : "other",
+        modelReason: typeof trade.modelReason === "string" ? trade.modelReason : null,
+        positiveSignal: typeof trade.positiveSignal === "string" ? trade.positiveSignal : null,
+        negativeSignal: typeof trade.negativeSignal === "string" ? trade.negativeSignal : null,
+        source:
+          trade.source === "manual" || trade.source === "heuristic" || trade.source === "arb_scanner"
+            ? trade.source
+            : "manual",
         exitValueCents:
           typeof trade.exitValueCents === "number" && Number.isFinite(trade.exitValueCents)
             ? Math.max(0, Math.min(100, trade.exitValueCents))

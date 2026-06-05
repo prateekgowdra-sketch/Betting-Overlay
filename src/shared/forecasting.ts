@@ -4,8 +4,8 @@ export type ForecastConfidence = "Low" | "Medium" | "High";
 export type ForecastRiskLevel = "Low" | "Medium" | "High";
 
 export interface MarketForecast {
-  fairYesProbability: number;
-  fairSideProbability: number;
+  fairYesProbability: number | null;
+  fairSideProbability: number | null;
   currentSideProbability: number | null;
   edgeCents: number | null;
   confidence: ForecastConfidence;
@@ -169,15 +169,15 @@ export function forecastMarketEdge(
 
   if (!market || typeof currentYesProbability !== "number" || market.isResolved) {
     const fallbackFairSideProbability =
-      typeof currentSideProbability === "number" ? currentSideProbability : 50;
+      typeof currentSideProbability === "number" ? currentSideProbability : null;
 
     return {
-      fairYesProbability: typeof currentYesProbability === "number" ? currentYesProbability : 50,
+      fairYesProbability: typeof currentYesProbability === "number" ? currentYesProbability : null,
       fairSideProbability: fallbackFairSideProbability,
       currentSideProbability,
       edgeCents:
         typeof fallbackSideProbability === "number" && typeof currentSideProbability === "number"
-          ? roundTenth(fallbackFairSideProbability - currentSideProbability)
+          ? roundTenth(currentSideProbability - currentSideProbability)
           : null,
       confidence: "Low",
       movementForecast: market?.isResolved ? "Unavailable" : "Stable",

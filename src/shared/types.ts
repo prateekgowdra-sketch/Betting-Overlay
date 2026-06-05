@@ -321,8 +321,14 @@ export interface ResearchPaperTrade {
   entryPriceCents: number;
   modelProbabilityPercent: number;
   edgePercent: number;
+  netEdgePercent?: number | null;
   suggestedRiskDollars: number;
   status: ResearchPaperTradeStatus;
+  marketCategory?: string | null;
+  modelReason?: string | null;
+  positiveSignal?: string | null;
+  negativeSignal?: string | null;
+  source?: "manual" | "heuristic" | "arb_scanner";
   exitValueCents?: number | null;
   profitLossDollars?: number | null;
   settledAt?: string | null;

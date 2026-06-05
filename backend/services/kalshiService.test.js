@@ -33,6 +33,33 @@ test("normalizeTrackedMarket does not show settled YES markets as YES 100 and NO
   assert.equal(market.noAskCents, 0);
 });
 
+test("normalizeTrackedMarket reads real Kalshi price field names", () => {
+  const market = normalizeTrackedMarket({
+    ticker: "KXNBA-26SPURS-WIN",
+    event_ticker: "KXNBA-26SPURS",
+    title: "Spurs win",
+    status: "open",
+    yes_bid: 41,
+    yes_ask: 43,
+    no_bid: 56,
+    no_ask: 58,
+    last_price: 42,
+    previous_price: 39,
+    volume: 1200,
+    liquidity: 25000,
+    updated_at: "2026-06-05T01:30:00Z"
+  });
+
+  assert.equal(market.yesBidCents, 41);
+  assert.equal(market.yesAskCents, 43);
+  assert.equal(market.noBidCents, 56);
+  assert.equal(market.noAskCents, 58);
+  assert.equal(market.lastPriceCents, 42);
+  assert.equal(market.previousPriceCents, 39);
+  assert.equal(market.volume, 1200);
+  assert.equal(market.liquidityCents, 25000);
+});
+
 test("normalizeTrackedMarket hides finalized prices when result is unknown", () => {
   const market = normalizeTrackedMarket({
     ticker: "KXMLBGAME-26JUN02TEXSTL-TEX",

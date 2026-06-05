@@ -145,7 +145,47 @@ function dollarsStringToCents(value) {
   return Math.max(0, Math.min(100, Math.round(numeric * 100)));
 }
 
+function centsNumberOrNull(value) {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return null;
+  }
+
+  if (String(value).trim() === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function centsAmountOrNull(value) {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return null;
+  }
+
+  if (String(value).trim() === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(numeric));
+}
+
 function fixedPointStringToNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
   if (typeof value !== "string" || value === "") {
     return null;
   }
@@ -732,14 +772,22 @@ function normalizeKalshiMarket(rawMarket) {
   const lifecycleStatus = normalizeLifecycleStatus(rawMarket.status);
   const isResolved = isResolvedLifecycle(lifecycleStatus);
 
-  if ("yes_ask_cents" in rawMarket || "yes_bid_cents" in rawMarket) {
+  if (
+    "yes_ask_cents" in rawMarket ||
+    "yes_bid_cents" in rawMarket ||
+    "yes_ask" in rawMarket ||
+    "yes_bid" in rawMarket ||
+    "last_price" in rawMarket
+  ) {
+    const yesBidCents = centsNumberOrNull(rawMarket.yes_bid_cents ?? rawMarket.yes_bid);
+    const yesAskCents = centsNumberOrNull(rawMarket.yes_ask_cents ?? rawMarket.yes_ask);
+    const lastPriceCents = centsNumberOrNull(rawMarket.last_price_cents ?? rawMarket.last_price);
     const yesPriceCents =
-      rawMarket.last_price_cents ?? rawMarket.yes_ask_cents ?? rawMarket.yes_bid_cents ?? null;
+      lastPriceCents ?? yesAskCents ?? yesBidCents ?? null;
     const noPriceCents =
-      rawMarket.no_ask_cents ??
-      rawMarket.no_bid_cents ??
+      centsNumberOrNull(rawMarket.no_ask_cents ?? rawMarket.no_ask) ??
+      centsNumberOrNull(rawMarket.no_bid_cents ?? rawMarket.no_bid) ??
       (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
-    const lastPriceCents = rawMarket.last_price_cents ?? yesPriceCents;
     const winningSide = getWinningSide(rawMarket, lifecycleStatus, lastPriceCents);
 
     return {
@@ -753,7 +801,7 @@ function normalizeKalshiMarket(rawMarket) {
       resultKnown: Boolean(winningSide),
       yesPriceCents,
       noPriceCents,
-      lastPriceCents,
+      lastPriceCents: lastPriceCents ?? yesPriceCents,
       updatedAt: rawMarket.updated_at ?? null
     };
   }
@@ -761,12 +809,20 @@ function normalizeKalshiMarket(rawMarket) {
   const yesPriceCents =
     dollarsStringToCents(rawMarket.yes_ask_dollars) ??
     dollarsStringToCents(rawMarket.yes_bid_dollars) ??
-    dollarsStringToCents(rawMarket.last_price_dollars);
+    dollarsStringToCents(rawMarket.last_price_dollars) ??
+    centsNumberOrNull(rawMarket.yes_ask_cents ?? rawMarket.yes_ask) ??
+    centsNumberOrNull(rawMarket.yes_bid_cents ?? rawMarket.yes_bid) ??
+    centsNumberOrNull(rawMarket.last_price_cents ?? rawMarket.last_price);
   const noPriceCents =
     dollarsStringToCents(rawMarket.no_ask_dollars) ??
     dollarsStringToCents(rawMarket.no_bid_dollars) ??
+    centsNumberOrNull(rawMarket.no_ask_cents ?? rawMarket.no_ask) ??
+    centsNumberOrNull(rawMarket.no_bid_cents ?? rawMarket.no_bid) ??
     (typeof yesPriceCents === "number" ? 100 - yesPriceCents : null);
-  const lastPriceCents = dollarsStringToCents(rawMarket.last_price_dollars) ?? yesPriceCents;
+  const lastPriceCents =
+    dollarsStringToCents(rawMarket.last_price_dollars) ??
+    centsNumberOrNull(rawMarket.last_price_cents ?? rawMarket.last_price) ??
+    yesPriceCents;
   const winningSide = getWinningSide(rawMarket, lifecycleStatus, lastPriceCents);
 
   return {
@@ -833,29 +889,35 @@ function normalizeTrackedMarket(rawMarket, position = null) {
       ? resolvedYesCents
       : shouldHideUnknownResolvedPrices
         ? null
-        : dollarsStringToCents(rawMarket.yes_bid_dollars) ?? rawMarket.yes_bid_cents ?? null,
+        : dollarsStringToCents(rawMarket.yes_bid_dollars) ??
+          centsNumberOrNull(rawMarket.yes_bid_cents ?? rawMarket.yes_bid),
     yesAskCents: shouldUseResolvedPrices
       ? resolvedYesCents
       : shouldHideUnknownResolvedPrices
         ? null
-        : dollarsStringToCents(rawMarket.yes_ask_dollars) ?? rawMarket.yes_ask_cents ?? null,
+        : dollarsStringToCents(rawMarket.yes_ask_dollars) ??
+          centsNumberOrNull(rawMarket.yes_ask_cents ?? rawMarket.yes_ask),
     noBidCents: shouldUseResolvedPrices
       ? resolvedNoCents
       : shouldHideUnknownResolvedPrices
         ? null
-        : dollarsStringToCents(rawMarket.no_bid_dollars) ?? rawMarket.no_bid_cents ?? null,
+        : dollarsStringToCents(rawMarket.no_bid_dollars) ??
+          centsNumberOrNull(rawMarket.no_bid_cents ?? rawMarket.no_bid),
     noAskCents: shouldUseResolvedPrices
       ? resolvedNoCents
       : shouldHideUnknownResolvedPrices
         ? null
-        : dollarsStringToCents(rawMarket.no_ask_dollars) ?? rawMarket.no_ask_cents ?? null,
+        : dollarsStringToCents(rawMarket.no_ask_dollars) ??
+          centsNumberOrNull(rawMarket.no_ask_cents ?? rawMarket.no_ask),
     lastPriceCents: normalized.lastPriceCents,
     previousPriceCents:
-      dollarsStringToCents(rawMarket.previous_price_dollars) ?? rawMarket.previous_price_cents ?? null,
-    volume: fixedPointStringToNumber(rawMarket.volume_fp) ?? null,
-    openInterest: fixedPointStringToNumber(rawMarket.open_interest_fp) ?? null,
+      dollarsStringToCents(rawMarket.previous_price_dollars) ??
+      centsNumberOrNull(rawMarket.previous_price_cents ?? rawMarket.previous_price),
+    volume: fixedPointStringToNumber(rawMarket.volume_fp ?? rawMarket.volume) ?? null,
+    openInterest: fixedPointStringToNumber(rawMarket.open_interest_fp ?? rawMarket.open_interest) ?? null,
     liquidityCents:
-      dollarsStringToCents(rawMarket.liquidity_dollars) ?? rawMarket.liquidity_cents ?? null,
+      dollarsStringToCents(rawMarket.liquidity_dollars) ??
+      centsAmountOrNull(rawMarket.liquidity_cents ?? rawMarket.liquidity),
     closeTime: rawMarket.close_time ?? null,
     updatedAt: normalized.updatedAt,
     position

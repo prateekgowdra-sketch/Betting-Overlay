@@ -18,7 +18,10 @@ import {
   saveKalshiWatchlist
 } from "../shared/storage";
 import {
+  exportResearchTradesAsCsv,
+  exportResearchTradesAsJson,
   generateResearchPick,
+  settlePaperTrade,
   summarizePaperTrades
 } from "../shared/research";
 import {
@@ -330,7 +333,13 @@ export function PopupApp() {
   const [isLoadingComboLegs, setIsLoadingComboLegs] = useState(false);
   const [hasSearchedComboLegs, setHasSearchedComboLegs] = useState(false);
   const [researchSettings, setResearchSettings] = useState<ResearchSettings | null>(null);
+  const [researchSearchQuery, setResearchSearchQuery] = useState("");
+  const [researchSearchResults, setResearchSearchResults] = useState<KalshiMarketSnapshot[]>([]);
+  const [researchSearchQueryInfo, setResearchSearchQueryInfo] = useState<KalshiMarketsResponse["queryInfo"] | null>(null);
+  const [researchSearchError, setResearchSearchError] = useState("");
+  const [isLoadingResearchResults, setIsLoadingResearchResults] = useState(false);
   const [paperTrades, setPaperTrades] = useState<ResearchPaperTrade[]>([]);
+  const [paperTradeExitPrices, setPaperTradeExitPrices] = useState<Record<string, string>>({});
   const [popupTab, setPopupTab] = useState<PopupTab>("combos");
 
   useEffect(() => {
@@ -364,6 +373,8 @@ export function PopupApp() {
         setSearchResults(initialResults.markets);
         setSearchQueryInfo(initialResults.queryInfo ?? null);
         setSearchCursor(initialResults.cursor);
+        setResearchSearchResults(initialResults.markets);
+        setResearchSearchQueryInfo(initialResults.queryInfo ?? null);
       }
 
       if (marketTrackerSettings !== nextSettings) {
@@ -443,6 +454,23 @@ export function PopupApp() {
     }
   }
 
+  async function runResearchSearch(nextQuery = researchSearchQuery) {
+    setIsLoadingResearchResults(true);
+    setResearchSearchError("");
+
+    try {
+      const response = await loadSearchResults(nextQuery, "open");
+      setResearchSearchResults(response.markets);
+      setResearchSearchQueryInfo(response.queryInfo ?? null);
+    } catch (error) {
+      setResearchSearchError(error instanceof Error ? error.message : "Research search failed");
+      setResearchSearchResults([]);
+      setResearchSearchQueryInfo(null);
+    } finally {
+      setIsLoadingResearchResults(false);
+    }
+  }
+
   const watchlistSummary = useMemo(() => {
     const visibleCount = watchlist.filter((item) => !item.archived && !item.hidden).length;
 
@@ -491,10 +519,10 @@ export function PopupApp() {
     comboBuilderLegs,
     newComboAmountRisked
   );
-  const researchPicks = searchResults
+  const researchPicks = researchSearchResults
     .filter((market) => !market.isResolved)
     .slice(0, 8)
-    .map((market) => generateResearchPick(market, researchSettings, researchSettings.manualModelProbability));
+    .map((market) => generateResearchPick(market, researchSettings));
   const bestResearchPick = researchPicks.reduce<(typeof researchPicks)[number] | null>(
     (bestPick, pick) =>
       !bestPick || (pick.netEdgePercent ?? -Infinity) > (bestPick.netEdgePercent ?? -Infinity)
@@ -502,7 +530,8 @@ export function PopupApp() {
         : bestPick,
     null
   );
-  const paperTradeStats = summarizePaperTrades(paperTrades);
+  const paperTradeAnalytics = summarizePaperTrades(paperTrades);
+  const paperTradeStats = paperTradeAnalytics.stats;
 
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
@@ -738,7 +767,11 @@ export function PopupApp() {
   }
 
   async function addPaperTradeFromPick(pick: (typeof researchPicks)[number]) {
-    if (typeof pick.currentPriceCents !== "number" || pick.suggestedRiskDollars <= 0) {
+    if (
+      typeof pick.currentPriceCents !== "number" ||
+      typeof pick.modelProbabilityPercent !== "number" ||
+      pick.suggestedRiskDollars <= 0
+    ) {
       return;
     }
 
@@ -752,8 +785,14 @@ export function PopupApp() {
       entryPriceCents: pick.currentPriceCents,
       modelProbabilityPercent: pick.modelProbabilityPercent,
       edgePercent: pick.edgePercent ?? 0,
+      netEdgePercent: pick.netEdgePercent,
       suggestedRiskDollars: pick.suggestedRiskDollars,
       status: "open",
+      marketCategory: pick.marketCategory,
+      modelReason: pick.reason,
+      positiveSignal: pick.positiveSignal,
+      negativeSignal: pick.negativeSignal,
+      source: pick.source,
       exitValueCents: null,
       profitLossDollars: null,
       settledAt: null
@@ -762,27 +801,53 @@ export function PopupApp() {
     await persistPaperTrades([nextTrade, ...paperTrades]);
   }
 
-  async function settlePaperTrade(trade: ResearchPaperTrade, exitValueCents: number) {
-    const safeExitValue = Math.max(0, Math.min(100, exitValueCents));
-    const contracts =
-      trade.entryPriceCents > 0 ? trade.suggestedRiskDollars / (trade.entryPriceCents / 100) : 0;
-    const profitLossDollars = roundCurrency(
-      contracts * ((safeExitValue - trade.entryPriceCents) / 100)
-    );
-
+  async function settlePaperTradeManually(trade: ResearchPaperTrade, exitValueCents: number) {
     await persistPaperTrades(
       paperTrades.map((currentTrade) =>
         currentTrade.id === trade.id
-          ? {
-              ...currentTrade,
-              status: "settled",
-              exitValueCents: safeExitValue,
-              profitLossDollars,
-              settledAt: new Date().toISOString()
-            }
+          ? settlePaperTrade(currentTrade, exitValueCents)
           : currentTrade
       )
     );
+  }
+
+  async function removePaperTrade(tradeId: string) {
+    await persistPaperTrades(paperTrades.filter((trade) => trade.id !== tradeId));
+    setPaperTradeExitPrices((current) => {
+      const next = { ...current };
+      delete next[tradeId];
+      return next;
+    });
+  }
+
+  function downloadResearchExport(format: "json" | "csv") {
+    const content =
+      format === "json"
+        ? exportResearchTradesAsJson(paperTrades)
+        : exportResearchTradesAsCsv(paperTrades);
+    const mimeType = format === "json" ? "application/json" : "text/csv";
+    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `kalshi-paper-trades.${format}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importResearchTrades(file: File | null) {
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    const parsed = JSON.parse(text) as { trades?: ResearchPaperTrade[] } | ResearchPaperTrade[];
+    const importedTrades = Array.isArray(parsed) ? parsed : parsed.trades;
+
+    if (!Array.isArray(importedTrades)) {
+      return;
+    }
+
+    await persistPaperTrades([...importedTrades, ...paperTrades]);
   }
 
   return (
@@ -1516,21 +1581,42 @@ export function PopupApp() {
           Real trading is disabled. This mode only calculates EV, flags possible arbitrage, generates picks, and saves paper trades.
         </div>
 
+        <div className="research-search-panel">
+          <div className="panel-header compact-header">
+            <h3>Research Markets</h3>
+            <span className="small-copy">
+              {isLoadingResearchResults ? "Searching..." : `${researchSearchResults.length} result${researchSearchResults.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+          <form
+            className="search-row research-search-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runResearchSearch(researchSearchQuery);
+            }}
+          >
+            <input
+              value={researchSearchQuery}
+              placeholder="Search markets for research"
+              onChange={(event) => setResearchSearchQuery(event.target.value)}
+            />
+            <button type="submit" disabled={isLoadingResearchResults}>
+              Search
+            </button>
+          </form>
+          {researchSearchError ? <div className="error-copy">{researchSearchError}</div> : null}
+          {formatSearchExpansion(researchSearchQueryInfo) ? (
+            <div className="search-explain">{formatSearchExpansion(researchSearchQueryInfo)}</div>
+          ) : null}
+          {formatDetectedTeams(researchSearchQueryInfo) ? (
+            <div className="search-explain">{formatDetectedTeams(researchSearchQueryInfo)}</div>
+          ) : null}
+        </div>
+
         <div className="field-grid research-settings-grid">
           <label>
-            Manual model YES probability (%)
-            <input
-              type="number"
-              min={1}
-              max={99}
-              value={researchSettings.manualModelProbability}
-              onChange={(event) =>
-                void persistResearchSettings({
-                  ...researchSettings,
-                  manualModelProbability: Math.max(1, Math.min(99, Number(event.target.value) || 50))
-                })
-              }
-            />
+            Model anchor
+            <input value="Market price" readOnly />
           </label>
           <label>
             Fee/slippage buffer (%)
@@ -1613,6 +1699,12 @@ export function PopupApp() {
           </div>
           <div className="stat-card">
             <div>
+              <div className="stat-label">ROI</div>
+              <div className="stat-value">{formatSignedPercent(paperTradeStats.roiPercent)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div>
               <div className="stat-label">Win rate</div>
               <div className="stat-value">{formatPercent(paperTradeStats.winRatePercent)}</div>
             </div>
@@ -1625,11 +1717,76 @@ export function PopupApp() {
           </div>
         </div>
 
+        <div className="research-metric-grid research-detail-stats">
+          <span>Avg entry <strong>{formatPrice(paperTradeStats.averageEntryPriceCents)}</strong></span>
+          <span>Avg model <strong>{formatPercent(paperTradeStats.averageModelProbabilityPercent)}</strong></span>
+          <span>Avg edge <strong>{formatSignedPercent(paperTradeStats.averageEdgePercent)}</strong></span>
+          <span>Avg net <strong>{formatSignedPercent(paperTradeStats.averageNetEdgePercent)}</strong></span>
+          <span>Best <strong>{formatDollars(paperTradeStats.bestTrade?.profitLossDollars)}</strong></span>
+          <span>Worst <strong>{formatDollars(paperTradeStats.worstTrade?.profitLossDollars)}</strong></span>
+        </div>
+
+        <div className="research-export-row">
+          <button type="button" className="inline-button" onClick={() => downloadResearchExport("json")}>
+            Export JSON
+          </button>
+          <button type="button" className="inline-button" onClick={() => downloadResearchExport("csv")}>
+            Export CSV
+          </button>
+          <label className="inline-button research-import-button">
+            Import JSON
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => void importResearchTrades(event.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
+
+        <div className="research-bucket-grid">
+          <div className="research-bucket-card">
+            <div className="section-mini-title">Calibration</div>
+            {paperTradeAnalytics.calibrationBuckets.map((bucket) => (
+              <div className="research-bucket-row" key={bucket.label}>
+                <span>{bucket.label}</span>
+                <span>{bucket.tradeCount} trades</span>
+                <span>Pred {formatPercent(bucket.predictedAverageProbabilityPercent)}</span>
+                <span>Actual {formatPercent(bucket.winRatePercent)}</span>
+                <span>{formatDollars(bucket.profitLossDollars)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="research-bucket-card">
+            <div className="section-mini-title">Edge Buckets</div>
+            {paperTradeAnalytics.edgeBuckets.map((bucket) => (
+              <div className="research-bucket-row" key={bucket.label}>
+                <span>{bucket.label}</span>
+                <span>{bucket.tradeCount} trades</span>
+                <span>Win {formatPercent(bucket.winRatePercent)}</span>
+                <span>ROI {formatSignedPercent(bucket.roiPercent)}</span>
+                <span>{formatDollars(bucket.profitLossDollars)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="research-bucket-card">
+            <div className="section-mini-title">Categories</div>
+            {paperTradeAnalytics.categoryBuckets.map((bucket) => (
+              <div className="research-bucket-row" key={bucket.label}>
+                <span>{bucket.label}</span>
+                <span>{bucket.tradeCount} trades</span>
+                <span>Win {formatPercent(bucket.winRatePercent)}</span>
+                <span>ROI {formatSignedPercent(bucket.roiPercent)}</span>
+                <span>{formatDollars(bucket.profitLossDollars)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="research-layout">
           <div className="research-column">
             <div className="section-mini-title">Market Scanner</div>
             <div className="position-note">
-              Uses the current Search Kalshi Markets results. Search in Active, then open this tab to review EV and arb candidates.
+              Uses the Research Markets search above to review EV and arb candidates.
             </div>
             <div className="positions-list">
               {researchPicks.length === 0 ? (
@@ -1660,6 +1817,9 @@ export function PopupApp() {
                     <div className="research-arb-line">
                       Arb: total {formatPrice(pick.arb.totalCostCents)} · net {formatSignedPercent(pick.arb.netArbCents)}
                       {pick.arb.isOpportunity ? " · possible same-market arb" : ""}
+                    </div>
+                    <div className="research-arb-line">
+                      Source: {pick.source} · Category: {pick.marketCategory} · Positive: {pick.positiveSignal} · Negative: {pick.negativeSignal}
                     </div>
                     <div className="position-note">{pick.reason}</div>
                     <div className="combo-result-actions">
@@ -1707,26 +1867,74 @@ export function PopupApp() {
                       <span>Model {formatPercent(trade.modelProbabilityPercent)} · edge {formatSignedPercent(trade.edgePercent)}</span>
                       <span>{new Date(trade.timestamp).toLocaleString()}</span>
                     </div>
+                    <div className="position-note">
+                      {trade.modelReason ?? "No model note saved."}
+                    </div>
+                    <div className="position-meta">
+                      <span>Source {trade.source ?? "manual"} · category {trade.marketCategory ?? "other"}</span>
+                      <span>Net {formatSignedPercent(trade.netEdgePercent)}</span>
+                    </div>
                     {trade.status === "open" ? (
-                      <div className="combo-result-actions">
+                      <div className="research-settle-row">
                         <button
                           type="button"
                           className="inline-button"
-                          onClick={() => void settlePaperTrade(trade, 100)}
+                          onClick={() => void settlePaperTradeManually(trade, 100)}
                         >
                           Settle win
                         </button>
                         <button
                           type="button"
                           className="inline-button muted-button"
-                          onClick={() => void settlePaperTrade(trade, 0)}
+                          onClick={() => void settlePaperTradeManually(trade, 0)}
                         >
                           Settle loss
                         </button>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          placeholder="Exit c"
+                          value={paperTradeExitPrices[trade.id] ?? ""}
+                          onChange={(event) =>
+                            setPaperTradeExitPrices((current) => ({
+                              ...current,
+                              [trade.id]: event.target.value
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="inline-button"
+                          onClick={() => {
+                            const exitValue = Number(paperTradeExitPrices[trade.id]);
+                            if (Number.isFinite(exitValue)) {
+                              void settlePaperTradeManually(trade, exitValue);
+                            }
+                          }}
+                        >
+                          Settle exit
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-button muted-button"
+                          onClick={() => void removePaperTrade(trade.id)}
+                        >
+                          Remove
+                        </button>
                       </div>
                     ) : (
-                      <div className="position-note">
-                        Exit {formatPrice(trade.exitValueCents)} · P/L {formatDollars(trade.profitLossDollars)}
+                      <div className="research-settled-footer">
+                        <div className="position-note">
+                          Exit {formatPrice(trade.exitValueCents)} · P/L {formatDollars(trade.profitLossDollars)}
+                        </div>
+                        <button
+                          type="button"
+                          className="inline-button muted-button"
+                          onClick={() => void removePaperTrade(trade.id)}
+                        >
+                          Remove
+                        </button>
                       </div>
                     )}
                   </article>
