@@ -136,6 +136,21 @@ function getResultLabel(market?: KalshiMarketSnapshot): string {
   return `${market.winningSide} won`;
 }
 
+function getUserOutcomeLabel(
+  market: KalshiMarketSnapshot | undefined,
+  userSide: KalshiMarketSide
+): string {
+  if (!market?.isResolved) {
+    return "";
+  }
+
+  if (!market.resultKnown || !market.winningSide) {
+    return "Result unknown";
+  }
+
+  return market.winningSide === userSide ? "You won" : "You lost";
+}
+
 function getCurrentSidePrice(
   side: KalshiMarketSide,
   market?: KalshiMarketSnapshot
@@ -353,9 +368,14 @@ function getProgressValue(item: KalshiWatchlistItem, market?: KalshiMarketSnapsh
 
 function renderTickerLabel(item: KalshiWatchlistItem, market?: KalshiMarketSnapshot): string {
   const performance = getBetPerformance(item, market);
+  const outcome = getUserOutcomeLabel(market, item.userSide);
   const currentProbability = formatKalshiPriceAsPercent(performance.currentSidePriceCents);
   const movement = formatProbabilityMovement(performance.movementCents);
   const status = formatMovementStatusLower(performance.movementStatus);
+
+  if (market?.isResolved) {
+    return `${truncateTitle(getDisplayTitle(item))} | Final ${currentProbability} | ${outcome || "Result unknown"} | ${movement}`;
+  }
 
   return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${currentProbability} | You ${item.userSide} | ${movement} ${status}`;
 }
@@ -1135,6 +1155,7 @@ export function OverlayApp() {
                 const isMarketDataUnavailable = !market;
                 const isResolved = isResolvedMarket(market);
                 const resultLabel = getResultLabel(market);
+                const userOutcomeLabel = getUserOutcomeLabel(market, item.userSide);
                 const alerts = getMarketAlerts(market, performance, item.userSide);
 
 	                return (
@@ -1201,6 +1222,14 @@ export function OverlayApp() {
                         </div>
 
                         <div className="klo-card-primary-grid">
+                          {isResolved ? (
+                            <div className="klo-primary-row">
+                              <span>Outcome</span>
+                              <strong className={`klo-outcome-text ${userOutcomeLabel === "You won" ? "is-good" : userOutcomeLabel === "You lost" ? "is-bad" : "is-unavailable"}`}>
+                                {userOutcomeLabel}
+                              </strong>
+                            </div>
+                          ) : null}
                           {isResolved ? (
                             <div className="klo-primary-row">
                               <span>Result</span>
@@ -1467,6 +1496,7 @@ export function OverlayApp() {
                 const noProbability = getNoProbability(market);
                 const finalProbability = getSideProbability(market, item.userSide);
                 const resultLabel = getResultLabel(market);
+                const userOutcomeLabel = getUserOutcomeLabel(market, item.userSide);
                 const marketUpdatedAt = market?.dataQuality?.lastUpdated ?? market?.updatedAt;
                 const trackedPosition = market?.position ?? null;
 
@@ -1504,6 +1534,12 @@ export function OverlayApp() {
                     )}
 
                     <div className="klo-card-primary-grid">
+                      <div className="klo-primary-row">
+                        <span>Outcome</span>
+                        <strong className={`klo-outcome-text ${userOutcomeLabel === "You won" ? "is-good" : userOutcomeLabel === "You lost" ? "is-bad" : "is-unavailable"}`}>
+                          {userOutcomeLabel}
+                        </strong>
+                      </div>
                       <div className="klo-primary-row">
                         <span>Result</span>
                         <strong>{resultLabel}</strong>

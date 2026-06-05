@@ -920,6 +920,8 @@ const SPORT_MARKET_DEFINITIONS = [
       "football club",
       "world cup",
       "fifa",
+      "fifa world cup",
+      "world cup 2026",
       "mls",
       "epl",
       "premier league",
@@ -932,8 +934,26 @@ const SPORT_MARKET_DEFINITIONS = [
       "concacaf",
       "copa america"
     ],
-    tickerPrefixes: ["SOCCER", "MLS", "EPL", "UCL", "UEFA", "FIFA", "WCUP", "WORLDCUP", "CONCACAF"],
-    seriesTickers: ["KXSOCCER", "KXMLS", "KXEPL", "KXUCL", "KXUEFA", "KXFIFA", "KXWCUP", "KXWORLDCUP"]
+    tickerPrefixes: ["SOCCER", "MLS", "EPL", "UCL", "UEFA", "FIFA", "FIFAWC", "WC", "WCUP", "WORLDCUP", "CONCACAF"],
+    seriesTickers: [
+      "KXWCROUND",
+      "KXWCGROUP",
+      "KXWCWINNER",
+      "KXWCFIFATOP10",
+      "KXWCNOEURSA",
+      "KXWC",
+      "KXWCUP",
+      "KXFIFAWC",
+      "KXFIFA",
+      "KXWORLDCUP",
+      "KXWORLDCUP2026",
+      "KXWORLD-CUP",
+      "KXSOCCER",
+      "KXMLS",
+      "KXEPL",
+      "KXUCL",
+      "KXUEFA"
+    ]
   },
   {
     key: "tennis",
@@ -986,10 +1006,10 @@ const SPORTS_MARKET_HINTS = SPORT_MARKET_DEFINITIONS.map(({ key, label, patterns
 }));
 const SPORT_TICKER_PREFIXES = Array.from(
   new Set(SPORT_MARKET_DEFINITIONS.flatMap((sport) => sport.tickerPrefixes))
-);
+).sort((a, b) => b.length - a.length);
 const SPORT_SERIES_TICKERS = Array.from(
   new Set(SPORT_MARKET_DEFINITIONS.flatMap((sport) => sport.seriesTickers))
-);
+).sort((a, b) => b.length - a.length);
 const DIRECT_SPORTS_LINE_TYPES = [
   "GAME",
   "PTS",
@@ -1016,6 +1036,8 @@ const DIRECT_SPORTS_LINE_TYPES = [
   "WIN",
   "WINNER",
   "MONEYLINE",
+  "ROUND",
+  "GROUP",
   "QUALIFY",
   "ADVANCE"
 ];
@@ -1047,7 +1069,9 @@ function getSearchTokens(value) {
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
 
-  return compact.length >= 4 && tokens.length <= 2 ? [...tokens, compact] : tokens;
+  return compact.length >= 4 && tokens.length <= 2 && tokens.some((token) => token.length <= 3)
+    ? [...tokens, compact]
+    : tokens;
 }
 
 const GENERIC_SEARCH_TERMS = new Set([
@@ -1220,6 +1244,44 @@ const TEAM_SEARCH_ALIASES = {
   "world": "world cup",
   cup: "world cup",
   fifa: "fifa",
+  usa: "usa",
+  "united": "united states",
+  states: "united states",
+  canada: "canada",
+  canadian: "canada",
+  mexico: "mex",
+  argentina: "arg",
+  brazil: "bra",
+  england: "eng",
+  france: "fra",
+  germany: "ger",
+  spain: "esp",
+  portugal: "por",
+  italy: "ita",
+  netherlands: "ned",
+  japan: "jpn",
+  korea: "kor",
+  morocco: "mar",
+  senegal: "sen",
+  ghana: "gha",
+  uruguay: "uru",
+  colombia: "col",
+  chile: "chi",
+  ecuador: "ecu",
+  peru: "per",
+  australia: "aus",
+  croatia: "cro",
+  belgium: "bel",
+  switzerland: "sui",
+  denmark: "den",
+  norway: "nor",
+  sweden: "swe",
+  poland: "pol",
+  turkey: "tur",
+  iran: "irn",
+  qatar: "qat",
+  saudi: "ksa",
+  arabia: "ksa",
   mls: "mls",
   premier: "epl",
   epl: "epl",
@@ -1311,6 +1373,12 @@ function detectTeamsForQuery(value) {
       }
 
       const aliasTokens = alias.split(" ");
+      const isShortCode = alias.length <= 3 && aliasTokens.length === 1;
+
+      if (isShortCode) {
+        return normalizedQuery === alias || queryTokens.has(alias);
+      }
+
       return (
         normalizedQuery === alias ||
         normalizedQuery.includes(alias) ||
@@ -1441,6 +1509,50 @@ function getSearchSeriesTickers(filters = {}) {
   );
 }
 
+function getSeriesDiscoveryTokens(value) {
+  const expandedTokens = getExpandedSearchTokens(value);
+  const sportsContextTokens = new Set(
+    SPORT_MARKET_DEFINITIONS.flatMap((definition) =>
+      definition.patterns.flatMap((pattern) => [
+        normalizeSearchText(pattern),
+        normalizeFilterValue(pattern)
+      ])
+    )
+  );
+  const matchingTokens = expandedTokens.filter((token) => sportsContextTokens.has(token));
+
+  return matchingTokens.length > 0 ? matchingTokens : getMeaningfulSearchTokens(value);
+}
+
+function eventMatchesSearch(event, filters = {}) {
+  const searchTokens = getMeaningfulSearchTokens(filters.search);
+
+  if (searchTokens.length === 0) {
+    return true;
+  }
+
+  const eventHaystack = eventSearchHaystack(event);
+  const marketHaystacks = Array.isArray(event?.markets)
+    ? event.markets.map((market) => marketSearchHaystack(market))
+    : [];
+
+  return searchMatchesAnyContext(searchTokens, [eventHaystack, ...marketHaystacks]);
+}
+
+function marketMatchesSearchWithEventContext(market, rawMarket, rawEvent, filters = {}) {
+  const searchTokens = getMeaningfulSearchTokens(filters.search);
+
+  if (searchTokens.length === 0) {
+    return true;
+  }
+
+  return searchMatchesAnyContext(searchTokens, [
+    marketSearchHaystack(market),
+    marketSearchHaystack(rawMarket),
+    eventSearchHaystack(rawEvent)
+  ]);
+}
+
 function marketSearchHaystack(market) {
   return [
     market.title,
@@ -1463,16 +1575,62 @@ function marketSearchHaystack(market) {
     .toLowerCase();
 }
 
+function eventSearchHaystack(event) {
+  return [
+    event?.title,
+    event?.sub_title,
+    event?.event_ticker,
+    event?.series_ticker,
+    event?.category,
+    event?.competition,
+    event?.competition_scope,
+    event?.product_metadata?.competition,
+    event?.product_metadata?.league,
+    event?.product_metadata?.sport,
+    ...(Array.isArray(event?.tags) ? event.tags : [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function seriesSearchHaystack(series) {
+  return [
+    series?.ticker,
+    series?.title,
+    series?.category,
+    series?.product_metadata?.competition,
+    series?.product_metadata?.league,
+    series?.product_metadata?.sport,
+    ...(Array.isArray(series?.tags) ? series.tags : [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function termMatchesHaystack(term, normalizedHaystack, rawHaystack) {
   const normalizedTerm = normalizeSearchText(term);
   const compactTerm = normalizedTerm.replace(/\s+/g, "");
   const compactHaystack = normalizedHaystack.replace(/\s+/g, "");
+  const normalizedTokens = normalizedHaystack.split(/\s+/).filter(Boolean);
+  const rawText = String(rawHaystack ?? "");
+
+  if (!normalizedTerm) {
+    return false;
+  }
+
+  if (compactTerm.length <= 3) {
+    const upperTerm = compactTerm.toUpperCase();
+    const tickerSegmentPattern = new RegExp(`(^|[-\\s])(?:\\d{2})?${upperTerm}($|[-\\s])`);
+
+    return normalizedTokens.includes(normalizedTerm) || tickerSegmentPattern.test(rawText.toUpperCase());
+  }
 
   return (
-    Boolean(normalizedTerm) &&
-    (normalizedHaystack.includes(normalizedTerm) ||
+    normalizedHaystack.includes(normalizedTerm) ||
       rawHaystack.includes(normalizedTerm) ||
-      (compactTerm.length >= 3 && compactHaystack.includes(compactTerm)))
+      (compactTerm.length >= 4 && compactHaystack.includes(compactTerm))
   );
 }
 
@@ -1502,6 +1660,26 @@ function searchTokensMatchHaystack(searchTokens, haystack) {
   );
 }
 
+function searchMatchesAnyContext(searchTokens, haystacks) {
+  if (searchTokens.length === 0) {
+    return false;
+  }
+
+  const combinedHaystack = haystacks.filter(Boolean).join(" ");
+
+  if (searchTokensMatchHaystack(searchTokens, combinedHaystack)) {
+    return true;
+  }
+
+  return searchTokens.every((token) =>
+    haystacks.some((haystack) =>
+      expandSearchToken(token).some((candidate) =>
+        termMatchesHaystack(candidate, normalizeSearchText(haystack), haystack)
+      )
+    )
+  );
+}
+
 function extractAssociatedMarketTickers(rawMarket) {
   const fromCustomStrike = String(rawMarket?.custom_strike?.["Associated Markets"] ?? "")
     .split(",")
@@ -1514,6 +1692,58 @@ function extractAssociatedMarketTickers(rawMarket) {
     : [];
 
   return Array.from(new Set([...fromCustomStrike, ...fromSelectedLegs]));
+}
+
+function isLikelyComboMarket(rawMarket) {
+  const ticker = String(rawMarket?.ticker ?? "").toUpperCase();
+  const eventTicker = String(rawMarket?.event_ticker ?? rawMarket?.eventTicker ?? "").toUpperCase();
+  const title = String(rawMarket?.title ?? rawMarket?.market_title ?? rawMarket?.yes_sub_title ?? "");
+
+  return (
+    ticker.includes("MVE") ||
+    eventTicker.includes("MVE") ||
+    Array.isArray(rawMarket?.mve_selected_legs) ||
+    /combo|parlay|same game|same-game|multi[- ]?leg|all of these|each of these/i.test(title)
+  );
+}
+
+function isLikelySingleOutcomeMarket(rawMarket) {
+  const ticker = String(rawMarket?.ticker ?? "").toUpperCase();
+  const title = String(rawMarket?.title ?? rawMarket?.market_title ?? rawMarket?.yes_sub_title ?? "");
+
+  return (
+    !isLikelyComboMarket(rawMarket) &&
+    (isDirectSportsLineTicker(ticker) ||
+      /who will win|winner|win the match|win the game|beat|defeat|moneyline|match winner|game winner|qualify|advance|reach the|make the/i.test(title))
+  );
+}
+
+function normalizeEventMarket(rawMarket, rawEvent, position = null) {
+  return normalizeTrackedMarket(
+    {
+      ...rawMarket,
+      event_ticker: rawMarket?.event_ticker ?? rawEvent?.event_ticker,
+      event_title: rawMarket?.event_title ?? rawEvent?.title,
+      series_ticker: rawMarket?.series_ticker ?? rawEvent?.series_ticker,
+      category: rawMarket?.category ?? rawEvent?.category,
+      title:
+        rawMarket?.title ??
+        rawMarket?.market_title ??
+        rawMarket?.yes_sub_title ??
+        rawEvent?.title ??
+        rawMarket?.ticker,
+      subtitle: rawMarket?.subtitle ?? rawMarket?.yes_sub_title ?? rawEvent?.sub_title,
+      sport: rawMarket?.sport ?? rawEvent?.product_metadata?.sport ?? null,
+      competition:
+        rawMarket?.competition ??
+        rawEvent?.competition ??
+        rawEvent?.product_metadata?.competition ??
+        rawEvent?.product_metadata?.league ??
+        null,
+      scope: rawMarket?.scope ?? rawEvent?.competition_scope ?? null
+    },
+    position
+  );
 }
 
 function isSportsTicker(ticker) {
@@ -1555,7 +1785,8 @@ function marketSortScore(market, filters = {}) {
   if (isDirectSportsLineTicker(ticker) && /GAME|MATCH|WIN|WINNER/i.test(ticker)) score += 80;
   if (isDirectSportsLineTicker(ticker)) score += 70;
   if (isSportsTicker(ticker)) score += 25;
-  if (/KXMVE/i.test(ticker)) score -= 60;
+  if (isLikelySingleOutcomeMarket(market)) score += 90;
+  if (isLikelyComboMarket(market)) score -= 140;
   if (/get.?in price|ticket|tickets|attendance/i.test(title)) score -= 80;
 
   if (filters.search) {
@@ -1646,6 +1877,7 @@ function deriveSportsMarketMetadata(rawMarket) {
     .join(" ")
     .toLowerCase();
   const directSport = typeof rawMarket.sport === "string" ? rawMarket.sport.trim() : "";
+  const directCategory = typeof rawMarket.category === "string" ? rawMarket.category.trim() : "";
   const matchedSport =
     SPORTS_MARKET_HINTS.map((sport) => {
       const strongestPattern = sport.patterns
@@ -1659,13 +1891,18 @@ function deriveSportsMarketMetadata(rawMarket) {
   const parsed = parseKalshiMarketTitle(
     rawMarket.title ?? rawMarket.market_title ?? rawMarket.subtitle ?? ""
   );
+  const fallbackCategory = directCategory || "Other";
+  const fallbackSport =
+    matchedSport?.label ??
+    (isSportsTicker(rawMarket.ticker) ? "Sports" : fallbackCategory);
+  const fallbackCompetition = matchedSport?.label ?? fallbackCategory;
 
   return {
-    sport: directSport || matchedSport?.label || "Sports",
+    sport: directSport || fallbackSport,
     competition:
       typeof rawMarket.competition === "string" && rawMarket.competition.trim()
         ? rawMarket.competition.trim()
-        : matchedSport?.label || "Sports",
+        : fallbackCompetition,
     scope:
       typeof rawMarket.scope === "string" && rawMarket.scope.trim()
         ? rawMarket.scope.trim()
@@ -2041,6 +2278,39 @@ class KalshiService {
     };
   }
 
+  async getPublicEvents(query = {}) {
+    const response = await kalshiClient.getPublicEvents(query);
+    const positionsByTicker = await this.getPositionsByTickerSafe();
+    const markets = [];
+
+    for (const event of response.events ?? []) {
+      for (const market of event.markets ?? []) {
+        markets.push(normalizeEventMarket(market, event, positionsByTicker.get(market.ticker) ?? null));
+      }
+    }
+
+    return {
+      mode: "real",
+      environment: this.getPublicEnvironment(),
+      events: response.events ?? [],
+      markets: markets.filter(Boolean),
+      cursor: response.cursor ?? null,
+      raw: response
+    };
+  }
+
+  async getPublicSeries(query = {}) {
+    const response = await kalshiClient.getPublicSeries(query);
+
+    return {
+      mode: "real",
+      environment: this.getPublicEnvironment(),
+      series: response.series ?? [],
+      cursor: response.cursor ?? null,
+      raw: response
+    };
+  }
+
   async getSportsFilters(query = {}) {
     const response = await this.getPublicMarkets({
       limit: query.limit ?? 100,
@@ -2137,9 +2407,86 @@ class KalshiService {
       }
     };
 
-    const seriesTickers = getSearchSeriesTickers(filters);
+    const guessedSeriesTickers = getSearchSeriesTickers(filters);
+    const discoveredSeriesTickers = [];
+
+    if (filters.search) {
+      try {
+        const seriesResponse = await this.getPublicSeries({
+          status: filters.status ?? "open"
+        });
+        const searchTokens = getSeriesDiscoveryTokens(filters.search);
+        const matchingSeriesTickers = seriesResponse.series
+          .filter((series) =>
+            searchMatchesAnyContext(searchTokens, [seriesSearchHaystack(series)])
+          )
+          .map((series) => series.ticker)
+          .filter(Boolean)
+          .slice(0, 8);
+
+        for (const ticker of matchingSeriesTickers) {
+          discoveredSeriesTickers.push(ticker);
+        }
+      } catch {
+        // Series discovery is a search enhancement; generic event/market search still runs.
+      }
+    }
+
+    const seriesTickers = Array.from(
+      new Set([
+        ...discoveredSeriesTickers,
+        ...guessedSeriesTickers.filter((ticker) => discoveredSeriesTickers.length === 0 || ticker === "KXWC")
+      ])
+    ).slice(0, filters.search ? 10 : 10);
+
+    for (const eventQuery of [
+      {
+        limit: pageLimit,
+        with_nested_markets: true,
+        ...(filters.status ? { status: filters.status } : {})
+      },
+      ...Array.from(new Set(seriesTickers)).map((seriesTicker) => ({
+        series_ticker: seriesTicker,
+        limit: pageLimit,
+        with_nested_markets: true,
+        ...(filters.status ? { status: filters.status } : {})
+      }))
+    ]) {
+      try {
+        const eventResponse = await this.getPublicEvents(eventQuery);
+        const rawEvents = eventResponse.raw?.events ?? [];
+
+        for (const rawEvent of rawEvents) {
+          if (!eventMatchesSearch(rawEvent, filters)) {
+            continue;
+          }
+
+          for (const rawMarket of rawEvent.markets ?? []) {
+            const normalizedMarket = normalizeEventMarket(rawMarket, rawEvent);
+
+            if (!normalizedMarket || !marketMatchesSearchWithEventContext(normalizedMarket, rawMarket, rawEvent, filters)) {
+              continue;
+            }
+
+            addMarkets([normalizedMarket]);
+          }
+        }
+
+        response = response ?? eventResponse;
+
+        if (collectedMarkets.filter((market) => marketMatchesFilter(market, filters)).length >= limit) {
+          break;
+        }
+      } catch {
+        // Keep searching other Kalshi endpoints when a guessed series/event query is unsupported.
+      }
+    }
 
     for (const seriesTicker of seriesTickers) {
+      if (collectedMarkets.filter((market) => marketMatchesFilter(market, filters)).length >= limit) {
+        break;
+      }
+
       try {
         const seriesResponse = await this.getPublicMarkets({
           series_ticker: seriesTicker,
@@ -2154,12 +2501,23 @@ class KalshiService {
       }
     }
 
-    for (let page = 0; page < maxPages; page += 1) {
-      response = await this.getPublicMarkets({
-        limit: pageLimit,
-        cursor,
-        ...(filters.status ? { status: filters.status } : {})
-      });
+    const shouldScanGenericMarketPages =
+      !filters.search || collectedMarkets.filter((market) => marketMatchesFilter(market, filters)).length < limit;
+
+    for (let page = 0; shouldScanGenericMarketPages && page < maxPages; page += 1) {
+      try {
+        response = await this.getPublicMarkets({
+          limit: pageLimit,
+          cursor,
+          ...(filters.status ? { status: filters.status } : {})
+        });
+      } catch (error) {
+        if (collectedMarkets.some((market) => marketMatchesFilter(market, filters))) {
+          break;
+        }
+
+        throw error;
+      }
 
       addMarkets(response.markets);
 
@@ -2702,6 +3060,7 @@ class KalshiService {
 
 export {
   buildSearchQueryInfo,
+  getSearchSeriesTickers,
   marketMatchesFilter,
   marketSortScore,
   normalizeKalshiMarket,

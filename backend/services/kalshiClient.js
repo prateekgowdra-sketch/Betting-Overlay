@@ -241,8 +241,36 @@ class KalshiClient {
     return this.publicGet(`/events/${encodeURIComponent(eventTicker)}`);
   }
 
+  async getPublicEvents(query = {}) {
+    const url = new URL(`${this.getPublicBaseUrl()}/events`);
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    }
+
+    const pathWithQuery = `/events${url.search ? url.search : ""}`;
+
+    return this.publicGet(pathWithQuery);
+  }
+
   async getPublicEventLiveData(eventTicker) {
     return this.publicGet(`/events/${encodeURIComponent(eventTicker)}/live_data`);
+  }
+
+  async getPublicSeries(query = {}) {
+    const url = new URL(`${this.getPublicBaseUrl()}/series`);
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    }
+
+    const pathWithQuery = `/series${url.search ? url.search : ""}`;
+
+    return this.publicGet(pathWithQuery);
   }
 
   async getPublicMarkets(query = {}) {
