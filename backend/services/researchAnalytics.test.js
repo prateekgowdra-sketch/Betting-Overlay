@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calculateExitScenario,
+  calculatePaperTrade,
   exportResearchTradesAsCsv,
   exportResearchTradesAsJson,
   getCalibrationBuckets,
   getEdgeBuckets,
+  getPaperTradeExitScenarios,
   settleResearchPaperTrade,
   summarizeDetailedPaperTrades
 } from "../../src/shared/researchAnalytics.ts";
@@ -18,6 +21,7 @@ const sampleTrades = [
     edgePercent: 6,
     netEdgePercent: 4,
     suggestedRiskDollars: 10,
+    actualCostDollars: 10,
     status: "settled",
     marketCategory: "sports",
     exitValueCents: 100,
@@ -31,6 +35,7 @@ const sampleTrades = [
     edgePercent: 7,
     netEdgePercent: 5,
     suggestedRiskDollars: 11,
+    actualCostDollars: 11,
     status: "settled",
     marketCategory: "sports",
     exitValueCents: 0,
@@ -44,6 +49,7 @@ const sampleTrades = [
     edgePercent: 12,
     netEdgePercent: 9,
     suggestedRiskDollars: 6,
+    actualCostDollars: 6,
     status: "open",
     marketCategory: "politics"
   }
@@ -53,6 +59,7 @@ test("summarizeDetailedPaperTrades calculates ROI and core paper stats", () => {
   const stats = summarizeDetailedPaperTrades(sampleTrades);
 
   assert.equal(stats.totalProfitLossDollars, 4);
+  assert.equal(stats.totalDollarsRisked, 21);
   assert.equal(stats.roiPercent, 19);
   assert.equal(stats.winRatePercent, 50);
   assert.equal(stats.averageEntryPriceCents, 41.7);
@@ -100,6 +107,8 @@ test("settleResearchPaperTrade auto-calculates payout and P/L", () => {
       edgePercent: 10,
       netEdgePercent: 8,
       suggestedRiskDollars: 5,
+      contracts: 10,
+      actualCostDollars: 5,
       status: "open"
     },
     100
@@ -107,7 +116,49 @@ test("settleResearchPaperTrade auto-calculates payout and P/L", () => {
 
   assert.equal(settledWin.status, "settled");
   assert.equal(settledWin.exitValueCents, 100);
+  assert.equal(settledWin.exitValueDollars, 10);
   assert.equal(settledWin.profitLossDollars, 5);
+});
+
+test("calculatePaperTrade floors contracts and calculates YES trade economics", () => {
+  const trade = calculatePaperTrade("YES", 42, 49, 10);
+
+  assert.equal(trade?.contracts, 23);
+  assert.equal(trade?.actualCostDollars, 9.66);
+  assert.equal(trade?.maxProfitDollars, 13.34);
+  assert.equal(trade?.maxLossDollars, 9.66);
+  assert.equal(trade?.winProbabilityPercent, 49);
+  assert.equal(trade?.expectedValueDollars, 1.61);
+  assert.equal(trade?.expectedRoiPercent, 16.7);
+});
+
+test("calculatePaperTrade calculates NO trade win probability", () => {
+  const trade = calculatePaperTrade("NO", 58, 42, 10);
+
+  assert.equal(trade?.contracts, 17);
+  assert.equal(trade?.actualCostDollars, 9.86);
+  assert.equal(trade?.winProbabilityPercent, 58);
+  assert.equal(trade?.expectedValueDollars, 0);
+  assert.equal(trade?.expectedRoiPercent, 0);
+});
+
+test("calculateExitScenario calculates cashout P/L and ROI", () => {
+  const scenario = calculateExitScenario(23, 9.66, 50);
+
+  assert.equal(scenario.cashoutValueDollars, 11.5);
+  assert.equal(scenario.profitLossDollars, 1.84);
+  assert.equal(scenario.roiPercent, 19);
+});
+
+test("getPaperTradeExitScenarios includes model fair price", () => {
+  const trade = calculatePaperTrade("YES", 42, 49, 10);
+  assert.ok(trade);
+
+  const scenarios = getPaperTradeExitScenarios(trade, 49);
+  const modelScenario = scenarios.find((scenario) => scenario.label === "Model");
+
+  assert.equal(scenarios.length, 6);
+  assert.equal(modelScenario?.exitPriceCents, 49);
 });
 
 test("research trade export produces parseable JSON and CSV headers", () => {

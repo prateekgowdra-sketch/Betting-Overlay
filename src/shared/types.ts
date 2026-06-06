@@ -310,7 +310,8 @@ export interface ResearchSettings {
   manualModelProbability: number;
 }
 
-export type ResearchPaperTradeStatus = "open" | "settled";
+export type ResearchPaperTradeStatus = "open" | "settled" | "exited";
+export type ResearchPaperTradeSettlementResult = "WIN" | "LOSS" | "EXIT";
 
 export interface ResearchPaperTrade {
   id: string;
@@ -320,9 +321,17 @@ export interface ResearchPaperTrade {
   side: KalshiMarketSide;
   entryPriceCents: number;
   modelProbabilityPercent: number;
+  winProbabilityPercent?: number | null;
   edgePercent: number;
   netEdgePercent?: number | null;
   suggestedRiskDollars: number;
+  riskInputDollars?: number | null;
+  contracts?: number | null;
+  actualCostDollars?: number | null;
+  maxProfitDollars?: number | null;
+  maxLossDollars?: number | null;
+  expectedValueDollars?: number | null;
+  expectedRoiPercent?: number | null;
   status: ResearchPaperTradeStatus;
   marketCategory?: string | null;
   modelReason?: string | null;
@@ -330,7 +339,12 @@ export interface ResearchPaperTrade {
   negativeSignal?: string | null;
   source?: "manual" | "heuristic" | "arb_scanner";
   exitValueCents?: number | null;
+  exitPriceCents?: number | null;
+  exitValueDollars?: number | null;
   profitLossDollars?: number | null;
+  realizedPnlDollars?: number | null;
+  settlementResult?: ResearchPaperTradeSettlementResult | null;
+  modelVersion?: string | null;
   settledAt?: string | null;
 }
 

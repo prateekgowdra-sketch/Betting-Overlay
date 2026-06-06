@@ -18,9 +18,12 @@ import {
   saveKalshiWatchlist
 } from "../shared/storage";
 import {
+  calculatePaperTrade,
+  getPaperTradeExitScenarios,
   exportResearchTradesAsCsv,
   exportResearchTradesAsJson,
   generateResearchPick,
+  MODEL_VERSION,
   settlePaperTrade,
   summarizePaperTrades
 } from "../shared/research";
@@ -340,6 +343,8 @@ export function PopupApp() {
   const [isLoadingResearchResults, setIsLoadingResearchResults] = useState(false);
   const [paperTrades, setPaperTrades] = useState<ResearchPaperTrade[]>([]);
   const [paperTradeExitPrices, setPaperTradeExitPrices] = useState<Record<string, string>>({});
+  const [confirmPaperTradeTicker, setConfirmPaperTradeTicker] = useState<string | null>(null);
+  const [confirmPaperTradeRisk, setConfirmPaperTradeRisk] = useState("");
   const [popupTab, setPopupTab] = useState<PopupTab>("combos");
 
   useEffect(() => {
@@ -373,8 +378,6 @@ export function PopupApp() {
         setSearchResults(initialResults.markets);
         setSearchQueryInfo(initialResults.queryInfo ?? null);
         setSearchCursor(initialResults.cursor);
-        setResearchSearchResults(initialResults.markets);
-        setResearchSearchQueryInfo(initialResults.queryInfo ?? null);
       }
 
       if (marketTrackerSettings !== nextSettings) {
@@ -532,6 +535,26 @@ export function PopupApp() {
   );
   const paperTradeAnalytics = summarizePaperTrades(paperTrades);
   const paperTradeStats = paperTradeAnalytics.stats;
+  const confirmPaperTradePick =
+    researchPicks.find((pick) => pick.marketTicker === confirmPaperTradeTicker) ?? null;
+  const confirmPaperTradeCalculation =
+    confirmPaperTradePick &&
+    typeof confirmPaperTradePick.currentPriceCents === "number" &&
+    typeof confirmPaperTradePick.modelProbabilityPercent === "number"
+      ? calculatePaperTrade(
+          confirmPaperTradePick.side,
+          confirmPaperTradePick.currentPriceCents,
+          confirmPaperTradePick.modelProbabilityPercent,
+          Number(confirmPaperTradeRisk)
+        )
+      : null;
+  const confirmPaperTradeScenarios =
+    confirmPaperTradeCalculation && confirmPaperTradePick
+      ? getPaperTradeExitScenarios(
+          confirmPaperTradeCalculation,
+          confirmPaperTradePick.ev.modelProbabilityPercent
+        )
+      : [];
 
   async function addMarketToWatchlist(market: KalshiMarketSnapshot) {
     if (watchlistByTicker.has(market.ticker)) {
@@ -766,11 +789,16 @@ export function PopupApp() {
     await addMarketToWatchlist(market);
   }
 
+  function startPaperTradePreview(pick: (typeof researchPicks)[number]) {
+    setConfirmPaperTradeTicker(pick.marketTicker);
+    setConfirmPaperTradeRisk(String(Math.max(0, researchSettings?.maxPaperTradeDollars ?? 0)));
+  }
+
   async function addPaperTradeFromPick(pick: (typeof researchPicks)[number]) {
     if (
       typeof pick.currentPriceCents !== "number" ||
       typeof pick.modelProbabilityPercent !== "number" ||
-      pick.suggestedRiskDollars <= 0
+      !confirmPaperTradeCalculation
     ) {
       return;
     }
@@ -784,9 +812,17 @@ export function PopupApp() {
       side: pick.side,
       entryPriceCents: pick.currentPriceCents,
       modelProbabilityPercent: pick.modelProbabilityPercent,
+      winProbabilityPercent: confirmPaperTradeCalculation.winProbabilityPercent,
       edgePercent: pick.edgePercent ?? 0,
       netEdgePercent: pick.netEdgePercent,
-      suggestedRiskDollars: pick.suggestedRiskDollars,
+      suggestedRiskDollars: confirmPaperTradeCalculation.actualCostDollars,
+      riskInputDollars: confirmPaperTradeCalculation.riskInputDollars,
+      contracts: confirmPaperTradeCalculation.contracts,
+      actualCostDollars: confirmPaperTradeCalculation.actualCostDollars,
+      maxProfitDollars: confirmPaperTradeCalculation.maxProfitDollars,
+      maxLossDollars: confirmPaperTradeCalculation.maxLossDollars,
+      expectedValueDollars: confirmPaperTradeCalculation.expectedValueDollars,
+      expectedRoiPercent: confirmPaperTradeCalculation.expectedRoiPercent,
       status: "open",
       marketCategory: pick.marketCategory,
       modelReason: pick.reason,
@@ -794,11 +830,18 @@ export function PopupApp() {
       negativeSignal: pick.negativeSignal,
       source: pick.source,
       exitValueCents: null,
+      exitPriceCents: null,
+      exitValueDollars: null,
       profitLossDollars: null,
+      realizedPnlDollars: null,
+      settlementResult: null,
+      modelVersion: MODEL_VERSION,
       settledAt: null
     };
 
     await persistPaperTrades([nextTrade, ...paperTrades]);
+    setConfirmPaperTradeTicker(null);
+    setConfirmPaperTradeRisk("");
   }
 
   async function settlePaperTradeManually(trade: ResearchPaperTrade, exitValueCents: number) {
@@ -1722,6 +1765,8 @@ export function PopupApp() {
           <span>Avg model <strong>{formatPercent(paperTradeStats.averageModelProbabilityPercent)}</strong></span>
           <span>Avg edge <strong>{formatSignedPercent(paperTradeStats.averageEdgePercent)}</strong></span>
           <span>Avg net <strong>{formatSignedPercent(paperTradeStats.averageNetEdgePercent)}</strong></span>
+          <span>Total cost <strong>{formatDollars(paperTradeStats.totalDollarsRisked)}</strong></span>
+          <span>Avg exp ROI <strong>{formatSignedPercent(paperTradeStats.averageExpectedRoiPercent)}</strong></span>
           <span>Best <strong>{formatDollars(paperTradeStats.bestTrade?.profitLossDollars)}</strong></span>
           <span>Worst <strong>{formatDollars(paperTradeStats.worstTrade?.profitLossDollars)}</strong></span>
         </div>
@@ -1782,6 +1827,80 @@ export function PopupApp() {
           </div>
         </div>
 
+        {confirmPaperTradePick ? (
+          <div className="research-confirm-panel">
+            <div className="panel-header compact-header">
+              <h3>Paper Trade Preview</h3>
+              <button
+                type="button"
+                className="inline-button muted-button"
+                onClick={() => {
+                  setConfirmPaperTradeTicker(null);
+                  setConfirmPaperTradeRisk("");
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="position-topline">
+              <span className="market">{confirmPaperTradePick.marketTitle}</span>
+              <span className="research-ev-badge">{confirmPaperTradePick.side}</span>
+            </div>
+            <div className="field-grid compact-grid">
+              <label>
+                Risk amount ($)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={confirmPaperTradeRisk}
+                  onChange={(event) => setConfirmPaperTradeRisk(event.target.value)}
+                />
+              </label>
+              <label>
+                Entry price
+                <input value={formatPrice(confirmPaperTradePick.currentPriceCents)} readOnly />
+              </label>
+            </div>
+            <div className="research-metric-grid research-preview-grid">
+              <span>Side <strong>{confirmPaperTradePick.side}</strong></span>
+              <span>Contracts <strong>{confirmPaperTradeCalculation?.contracts ?? "--"}</strong></span>
+              <span>Actual cost <strong>{formatDollars(confirmPaperTradeCalculation?.actualCostDollars)}</strong></span>
+              <span>Max profit <strong>{formatDollars(confirmPaperTradeCalculation?.maxProfitDollars)}</strong></span>
+              <span>Max loss <strong>{formatDollars(confirmPaperTradeCalculation?.maxLossDollars)}</strong></span>
+              <span>Model <strong>{formatPercent(confirmPaperTradePick.modelProbabilityPercent)}</strong></span>
+              <span>Win prob <strong>{formatPercent(confirmPaperTradeCalculation?.winProbabilityPercent)}</strong></span>
+              <span>EV <strong>{formatDollars(confirmPaperTradeCalculation?.expectedValueDollars)}</strong></span>
+              <span>Exp ROI <strong>{formatSignedPercent(confirmPaperTradeCalculation?.expectedRoiPercent)}</strong></span>
+              <span>Edge <strong>{formatSignedPercent(confirmPaperTradePick.edgePercent)}</strong></span>
+              <span>Net edge <strong>{formatSignedPercent(confirmPaperTradePick.netEdgePercent)}</strong></span>
+            </div>
+            {confirmPaperTradeScenarios.length > 0 ? (
+              <div className="research-scenario-table">
+                {confirmPaperTradeScenarios.map((scenario) => (
+                  <div className="research-scenario-row" key={`${scenario.label}-${scenario.exitPriceCents}`}>
+                    <span>{scenario.label}</span>
+                    <span>{formatPrice(scenario.exitPriceCents)}</span>
+                    <span>{formatDollars(scenario.cashoutValueDollars)}</span>
+                    <span>{formatDollars(scenario.profitLossDollars)}</span>
+                    <span>{formatSignedPercent(scenario.roiPercent)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="combo-result-actions">
+              <button
+                type="button"
+                className="inline-button"
+                disabled={!confirmPaperTradeCalculation}
+                onClick={() => void addPaperTradeFromPick(confirmPaperTradePick)}
+              >
+                Place paper trade
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="research-layout">
           <div className="research-column">
             <div className="section-mini-title">Market Scanner</div>
@@ -1791,50 +1910,66 @@ export function PopupApp() {
             <div className="positions-list">
               {researchPicks.length === 0 ? (
                 <article className="position-card">
-                  <div className="position-note">No open markets available for research yet.</div>
+                  <div className="position-note">Search for a market to generate research picks.</div>
                 </article>
               ) : (
-                researchPicks.map((pick) => (
-                  <article className="position-card research-pick-card" key={pick.marketTicker}>
-                    <div className="position-topline">
-                      <span className="market">{pick.marketTitle}</span>
-                      <span className={`research-ev-badge ${pick.ev.label === "Positive EV" ? "positive" : pick.ev.label === "Negative EV" ? "negative" : ""}`}>
-                        {pick.ev.label}
-                      </span>
-                    </div>
-                    <div className="position-meta">
-                      <span>{pick.marketTicker}</span>
-                      <span>Pick {pick.side}</span>
-                    </div>
-                    <div className="research-metric-grid">
-                      <span>Price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>
-                      <span>Model <strong>{formatPercent(pick.modelProbabilityPercent)}</strong></span>
-                      <span>Edge <strong>{formatSignedPercent(pick.edgePercent)}</strong></span>
-                      <span>Net <strong>{formatSignedPercent(pick.netEdgePercent)}</strong></span>
-                      <span>Max buy <strong>{formatPrice(pick.ev.maxProfitableBuyPriceCents)}</strong></span>
-                      <span>Risk <strong>{formatDollars(pick.suggestedRiskDollars)}</strong></span>
-                    </div>
-                    <div className="research-arb-line">
-                      Arb: total {formatPrice(pick.arb.totalCostCents)} · net {formatSignedPercent(pick.arb.netArbCents)}
-                      {pick.arb.isOpportunity ? " · possible same-market arb" : ""}
-                    </div>
-                    <div className="research-arb-line">
-                      Source: {pick.source} · Category: {pick.marketCategory} · Positive: {pick.positiveSignal} · Negative: {pick.negativeSignal}
-                    </div>
-                    <div className="position-note">{pick.reason}</div>
-                    <div className="combo-result-actions">
-                      <button
-                        type="button"
-                        className="inline-button"
-                        disabled={pick.suggestedRiskDollars <= 0}
-                        onClick={() => void addPaperTradeFromPick(pick)}
-                        title={pick.suggestedRiskDollars <= 0 ? "Needs positive net edge before paper trading" : "Save paper trade"}
-                      >
-                        Paper trade
-                      </button>
-                    </div>
-                  </article>
-                ))
+                researchPicks.map((pick) => {
+                  const defaultTradePreview =
+                    typeof pick.currentPriceCents === "number" &&
+                    typeof pick.modelProbabilityPercent === "number"
+                      ? calculatePaperTrade(
+                          pick.side,
+                          pick.currentPriceCents,
+                          pick.modelProbabilityPercent,
+                          researchSettings.maxPaperTradeDollars
+                        )
+                      : null;
+
+                  return (
+                    <article className="position-card research-pick-card" key={pick.marketTicker}>
+                      <div className="position-topline">
+                        <span className="market">{pick.marketTitle}</span>
+                        <span className={`research-ev-badge ${pick.ev.label === "Positive EV" ? "positive" : pick.ev.label === "Negative EV" ? "negative" : ""}`}>
+                          {pick.ev.label}
+                        </span>
+                      </div>
+                      <div className="position-meta">
+                        <span>{pick.marketTicker}</span>
+                        <span>Pick {pick.side}</span>
+                      </div>
+                      <div className="research-metric-grid">
+                        <span>{pick.side} price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>
+                        <span>Model <strong>{formatPercent(pick.modelProbabilityPercent)}</strong></span>
+                        <span>Edge <strong>{formatSignedPercent(pick.edgePercent)}</strong></span>
+                        <span>Net <strong>{formatSignedPercent(pick.netEdgePercent)}</strong></span>
+                        <span>Contracts <strong>{defaultTradePreview?.contracts ?? "--"}</strong></span>
+                        <span>Cost <strong>{formatDollars(defaultTradePreview?.actualCostDollars)}</strong></span>
+                        <span>Max profit <strong>{formatDollars(defaultTradePreview?.maxProfitDollars)}</strong></span>
+                        <span>EV <strong>{formatDollars(defaultTradePreview?.expectedValueDollars)}</strong></span>
+                        <span>Exp ROI <strong>{formatSignedPercent(defaultTradePreview?.expectedRoiPercent)}</strong></span>
+                      </div>
+                      <div className="research-arb-line">
+                        Arb: total {formatPrice(pick.arb.totalCostCents)} · net {formatSignedPercent(pick.arb.netArbCents)}
+                        {pick.arb.isOpportunity ? " · possible same-market arb" : ""}
+                      </div>
+                      <div className="research-arb-line">
+                        Source: {pick.source} · Category: {pick.marketCategory} · Positive: {pick.positiveSignal} · Negative: {pick.negativeSignal}
+                      </div>
+                      <div className="position-note">{pick.reason}</div>
+                      <div className="combo-result-actions">
+                        <button
+                          type="button"
+                          className="inline-button"
+                          disabled={!defaultTradePreview}
+                          onClick={() => startPaperTradePreview(pick)}
+                          title={!defaultTradePreview ? "Needs a valid market price and risk amount" : "Preview paper trade"}
+                        >
+                          Paper trade
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
               )}
             </div>
           </div>
@@ -1861,10 +1996,14 @@ export function PopupApp() {
                     </div>
                     <div className="position-meta">
                       <span>{trade.side} @ {formatPrice(trade.entryPriceCents)}</span>
-                      <span>Risk {formatDollars(trade.suggestedRiskDollars)}</span>
+                      <span>{trade.contracts ?? "--"} contracts · cost {formatDollars(trade.actualCostDollars)}</span>
                     </div>
                     <div className="position-meta">
-                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · edge {formatSignedPercent(trade.edgePercent)}</span>
+                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · win {formatPercent(trade.winProbabilityPercent)}</span>
+                      <span>EV {formatDollars(trade.expectedValueDollars)} · ROI {formatSignedPercent(trade.expectedRoiPercent)}</span>
+                    </div>
+                    <div className="position-meta">
+                      <span>Max profit {formatDollars(trade.maxProfitDollars)} · max loss {formatDollars(trade.maxLossDollars)}</span>
                       <span>{new Date(trade.timestamp).toLocaleString()}</span>
                     </div>
                     <div className="position-note">
@@ -1926,7 +2065,7 @@ export function PopupApp() {
                     ) : (
                       <div className="research-settled-footer">
                         <div className="position-note">
-                          Exit {formatPrice(trade.exitValueCents)} · P/L {formatDollars(trade.profitLossDollars)}
+                          {trade.settlementResult ?? "EXIT"} at {formatPrice(trade.exitPriceCents ?? trade.exitValueCents)} · value {formatDollars(trade.exitValueDollars)} · P/L {formatDollars(trade.profitLossDollars)}
                         </div>
                         <button
                           type="button"

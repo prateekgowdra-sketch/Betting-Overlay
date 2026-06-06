@@ -426,51 +426,114 @@ export async function getResearchPaperTrades(): Promise<ResearchPaperTrade[]> {
   if (Array.isArray(existing)) {
     return existing
       .filter((trade) => trade && typeof trade.id === "string" && typeof trade.marketTicker === "string")
-      .map((trade) => ({
-        id: trade.id,
-        timestamp: typeof trade.timestamp === "string" ? trade.timestamp : new Date().toISOString(),
-        marketTicker: trade.marketTicker,
-        marketTitle: typeof trade.marketTitle === "string" ? trade.marketTitle : trade.marketTicker,
-        side: trade.side === "NO" ? "NO" : "YES",
-        entryPriceCents:
+      .map((trade) => {
+        const entryPriceCents =
           typeof trade.entryPriceCents === "number" && Number.isFinite(trade.entryPriceCents)
             ? Math.max(0, Math.min(100, trade.entryPriceCents))
-            : 50,
-        modelProbabilityPercent:
-          typeof trade.modelProbabilityPercent === "number" && Number.isFinite(trade.modelProbabilityPercent)
-            ? Math.max(1, Math.min(99, trade.modelProbabilityPercent))
-            : 50,
-        edgePercent:
-          typeof trade.edgePercent === "number" && Number.isFinite(trade.edgePercent)
-            ? trade.edgePercent
-            : 0,
-        netEdgePercent:
-          typeof trade.netEdgePercent === "number" && Number.isFinite(trade.netEdgePercent)
-            ? trade.netEdgePercent
-            : null,
-        suggestedRiskDollars:
+            : 50;
+        const suggestedRiskDollars =
           typeof trade.suggestedRiskDollars === "number" && Number.isFinite(trade.suggestedRiskDollars)
             ? Math.max(0, trade.suggestedRiskDollars)
-            : 0,
-        status: trade.status === "settled" ? "settled" : "open",
-        marketCategory: typeof trade.marketCategory === "string" ? trade.marketCategory : "other",
-        modelReason: typeof trade.modelReason === "string" ? trade.modelReason : null,
-        positiveSignal: typeof trade.positiveSignal === "string" ? trade.positiveSignal : null,
-        negativeSignal: typeof trade.negativeSignal === "string" ? trade.negativeSignal : null,
-        source:
-          trade.source === "manual" || trade.source === "heuristic" || trade.source === "arb_scanner"
-            ? trade.source
-            : "manual",
-        exitValueCents:
-          typeof trade.exitValueCents === "number" && Number.isFinite(trade.exitValueCents)
-            ? Math.max(0, Math.min(100, trade.exitValueCents))
-            : null,
-        profitLossDollars:
-          typeof trade.profitLossDollars === "number" && Number.isFinite(trade.profitLossDollars)
-            ? trade.profitLossDollars
-            : null,
-        settledAt: typeof trade.settledAt === "string" ? trade.settledAt : null
-      }));
+            : 0;
+        const riskInputDollars =
+          typeof trade.riskInputDollars === "number" && Number.isFinite(trade.riskInputDollars)
+            ? Math.max(0, trade.riskInputDollars)
+            : suggestedRiskDollars;
+        const contracts =
+          typeof trade.contracts === "number" && Number.isFinite(trade.contracts)
+            ? Math.max(0, Math.floor(trade.contracts))
+            : entryPriceCents > 0
+              ? Math.floor(riskInputDollars / (entryPriceCents / 100))
+              : 0;
+        const actualCostDollars =
+          typeof trade.actualCostDollars === "number" && Number.isFinite(trade.actualCostDollars)
+            ? Math.max(0, trade.actualCostDollars)
+            : Math.round(contracts * (entryPriceCents / 100) * 100) / 100;
+        const exitPriceCents =
+          typeof trade.exitPriceCents === "number" && Number.isFinite(trade.exitPriceCents)
+            ? Math.max(0, Math.min(100, trade.exitPriceCents))
+            : typeof trade.exitValueCents === "number" && Number.isFinite(trade.exitValueCents)
+              ? Math.max(0, Math.min(100, trade.exitValueCents))
+              : null;
+
+        return {
+          id: trade.id,
+          timestamp: typeof trade.timestamp === "string" ? trade.timestamp : new Date().toISOString(),
+          marketTicker: trade.marketTicker,
+          marketTitle: typeof trade.marketTitle === "string" ? trade.marketTitle : trade.marketTicker,
+          side: trade.side === "NO" ? "NO" : "YES",
+          entryPriceCents,
+          modelProbabilityPercent:
+            typeof trade.modelProbabilityPercent === "number" && Number.isFinite(trade.modelProbabilityPercent)
+              ? Math.max(1, Math.min(99, trade.modelProbabilityPercent))
+              : 50,
+          winProbabilityPercent:
+            typeof trade.winProbabilityPercent === "number" && Number.isFinite(trade.winProbabilityPercent)
+              ? Math.max(1, Math.min(99, trade.winProbabilityPercent))
+              : null,
+          edgePercent:
+            typeof trade.edgePercent === "number" && Number.isFinite(trade.edgePercent)
+              ? trade.edgePercent
+              : 0,
+          netEdgePercent:
+            typeof trade.netEdgePercent === "number" && Number.isFinite(trade.netEdgePercent)
+              ? trade.netEdgePercent
+              : null,
+          suggestedRiskDollars,
+          riskInputDollars,
+          contracts,
+          actualCostDollars,
+          maxProfitDollars:
+            typeof trade.maxProfitDollars === "number" && Number.isFinite(trade.maxProfitDollars)
+              ? trade.maxProfitDollars
+              : Math.round((contracts - actualCostDollars) * 100) / 100,
+          maxLossDollars:
+            typeof trade.maxLossDollars === "number" && Number.isFinite(trade.maxLossDollars)
+              ? trade.maxLossDollars
+              : actualCostDollars,
+          expectedValueDollars:
+            typeof trade.expectedValueDollars === "number" && Number.isFinite(trade.expectedValueDollars)
+              ? trade.expectedValueDollars
+              : null,
+          expectedRoiPercent:
+            typeof trade.expectedRoiPercent === "number" && Number.isFinite(trade.expectedRoiPercent)
+              ? trade.expectedRoiPercent
+              : null,
+          status: trade.status === "settled" || trade.status === "exited" ? trade.status : "open",
+          marketCategory: typeof trade.marketCategory === "string" ? trade.marketCategory : "other",
+          modelReason: typeof trade.modelReason === "string" ? trade.modelReason : null,
+          positiveSignal: typeof trade.positiveSignal === "string" ? trade.positiveSignal : null,
+          negativeSignal: typeof trade.negativeSignal === "string" ? trade.negativeSignal : null,
+          source:
+            trade.source === "manual" || trade.source === "heuristic" || trade.source === "arb_scanner"
+              ? trade.source
+              : "manual",
+          exitValueCents: exitPriceCents,
+          exitPriceCents,
+          exitValueDollars:
+            typeof trade.exitValueDollars === "number" && Number.isFinite(trade.exitValueDollars)
+              ? trade.exitValueDollars
+              : null,
+          profitLossDollars:
+            typeof trade.profitLossDollars === "number" && Number.isFinite(trade.profitLossDollars)
+              ? trade.profitLossDollars
+              : null,
+          realizedPnlDollars:
+            typeof trade.realizedPnlDollars === "number" && Number.isFinite(trade.realizedPnlDollars)
+              ? trade.realizedPnlDollars
+              : typeof trade.profitLossDollars === "number" && Number.isFinite(trade.profitLossDollars)
+                ? trade.profitLossDollars
+                : null,
+          settlementResult:
+            trade.settlementResult === "WIN" ||
+            trade.settlementResult === "LOSS" ||
+            trade.settlementResult === "EXIT"
+              ? trade.settlementResult
+              : null,
+          modelVersion: typeof trade.modelVersion === "string" ? trade.modelVersion : null,
+          settledAt: typeof trade.settledAt === "string" ? trade.settledAt : null
+        };
+      });
   }
 
   await safeStorageSet({ [RESEARCH_PAPER_TRADES_KEY]: DEFAULT_RESEARCH_PAPER_TRADES });

@@ -382,6 +382,15 @@ button {
   margin-top: 10px;
 }
 
+.research-confirm-panel {
+  border: 1px solid rgba(97, 235, 174, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 34, 54, 0.78);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  padding: 12px;
+  margin-top: 12px;
+}
+
 .research-settings-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -471,6 +480,10 @@ button {
   margin-top: 0;
 }
 
+.research-preview-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .research-export-row,
 .research-settle-row {
   display: flex;
@@ -518,6 +531,32 @@ button {
 }
 
 .research-bucket-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-scenario-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.research-scenario-row {
+  display: grid;
+  grid-template-columns: 0.8fr 0.8fr repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+  border-radius: 10px;
+  border: 1px solid rgba(138, 173, 210, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #bdd2e6;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.research-scenario-row span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -794,11 +833,16 @@ button {
   .research-settings-grid,
   .research-layout,
   .research-bucket-grid,
+  .research-preview-grid,
   .research-metric-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .research-bucket-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .research-scenario-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

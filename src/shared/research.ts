@@ -6,6 +6,8 @@ import {
   ResearchSettings
 } from "./types";
 import {
+  calculatePaperTrade,
+  getPaperTradeExitScenarios,
   DetailedPaperTradeStats,
   exportResearchTradesAsCsv,
   exportResearchTradesAsJson,
@@ -64,6 +66,7 @@ export interface ResearchAnalytics {
 }
 
 const DEFAULT_RISK_DIVISOR = 4;
+const MODEL_VERSION = "market-price-heuristic-v1";
 
 function roundTenth(value: number): number {
   return Math.round(value * 10) / 10;
@@ -315,8 +318,10 @@ export function settlePaperTrade(
   trade: ResearchPaperTrade,
   exitValueCents: number
 ): ResearchPaperTrade {
+  const settled = settleResearchPaperTrade(trade, exitValueCents);
+
   return {
-    ...settleResearchPaperTrade(trade, exitValueCents),
+    ...settled,
     settledAt: new Date().toISOString()
   };
 }
@@ -330,4 +335,10 @@ export function summarizePaperTrades(trades: ResearchPaperTrade[]): ResearchAnal
   };
 }
 
-export { exportResearchTradesAsCsv, exportResearchTradesAsJson };
+export {
+  calculatePaperTrade,
+  getPaperTradeExitScenarios,
+  exportResearchTradesAsCsv,
+  exportResearchTradesAsJson,
+  MODEL_VERSION
+};
