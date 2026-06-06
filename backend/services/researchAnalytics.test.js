@@ -5,6 +5,7 @@ import {
   calculatePaperTrade,
   exportResearchTradesAsCsv,
   exportResearchTradesAsJson,
+  getBestBetScoreBuckets,
   getCalibrationBuckets,
   getEdgeBuckets,
   getPaperTradeExitScenarios,
@@ -18,6 +19,7 @@ const sampleTrades = [
     side: "YES",
     entryPriceCents: 40,
     modelProbabilityPercent: 56,
+    bestBetScore: 8.4,
     edgePercent: 6,
     netEdgePercent: 4,
     suggestedRiskDollars: 10,
@@ -32,6 +34,7 @@ const sampleTrades = [
     side: "YES",
     entryPriceCents: 55,
     modelProbabilityPercent: 62,
+    bestBetScore: 5.5,
     edgePercent: 7,
     netEdgePercent: 5,
     suggestedRiskDollars: 11,
@@ -46,6 +49,7 @@ const sampleTrades = [
     side: "NO",
     entryPriceCents: 30,
     modelProbabilityPercent: 72,
+    bestBetScore: 7.5,
     edgePercent: 12,
     netEdgePercent: 9,
     suggestedRiskDollars: 6,
@@ -64,6 +68,7 @@ test("summarizeDetailedPaperTrades calculates ROI and core paper stats", () => {
   assert.equal(stats.winRatePercent, 50);
   assert.equal(stats.averageEntryPriceCents, 41.7);
   assert.equal(stats.averageModelProbabilityPercent, 63.3);
+  assert.equal(stats.averageBestBetScore, 7.1);
   assert.equal(stats.averageEdgePercent, 8.3);
   assert.equal(stats.averageNetEdgePercent, 6);
   assert.equal(stats.openCount, 1);
@@ -95,6 +100,17 @@ test("getEdgeBuckets groups settled trades by edge range", () => {
   assert.equal(bucket5?.profitLossDollars, 4);
   assert.equal(bucket5?.roiPercent, 19);
   assert.equal(bucket10?.tradeCount, 0);
+});
+
+test("getBestBetScoreBuckets groups settled trades by best bet score", () => {
+  const buckets = getBestBetScoreBuckets(sampleTrades);
+  const bucket4 = buckets.find((bucket) => bucket.label === "4-6");
+  const bucket8 = buckets.find((bucket) => bucket.label === "8-10");
+
+  assert.equal(bucket4?.tradeCount, 1);
+  assert.equal(bucket4?.winRatePercent, 0);
+  assert.equal(bucket8?.tradeCount, 1);
+  assert.equal(bucket8?.winRatePercent, 100);
 });
 
 test("settleResearchPaperTrade auto-calculates payout and P/L", () => {
@@ -169,5 +185,6 @@ test("research trade export produces parseable JSON and CSV headers", () => {
   assert.equal(parsed.version, 1);
   assert.equal(parsed.trades.length, 3);
   assert.match(csv.split("\n")[0], /id,side,entryPriceCents/);
+  assert.match(csv.split("\n")[0], /bestBetScore/);
   assert.match(csv, /"win-55"/);
 });

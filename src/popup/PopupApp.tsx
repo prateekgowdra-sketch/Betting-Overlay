@@ -524,15 +524,27 @@ export function PopupApp() {
   );
   const researchPicks = researchSearchResults
     .filter((market) => !market.isResolved)
-    .slice(0, 8)
-    .map((market) => generateResearchPick(market, researchSettings));
+    .map((market) => generateResearchPick(market, researchSettings))
+    .sort(
+      (a, b) =>
+        (b.bestBetScore ?? -Infinity) - (a.bestBetScore ?? -Infinity) ||
+        (b.netEdgePercent ?? -Infinity) - (a.netEdgePercent ?? -Infinity)
+    )
+    .slice(0, 10);
   const bestResearchPick = researchPicks.reduce<(typeof researchPicks)[number] | null>(
     (bestPick, pick) =>
-      !bestPick || (pick.netEdgePercent ?? -Infinity) > (bestPick.netEdgePercent ?? -Infinity)
+      !bestPick || (pick.bestBetScore ?? -Infinity) > (bestPick.bestBetScore ?? -Infinity)
         ? pick
         : bestPick,
     null
   );
+  const arbScannerPicks = researchPicks
+    .filter(
+      (pick) =>
+        pick.arb.isOpportunity ||
+        (typeof pick.arb.netArbCents === "number" && pick.arb.netArbCents > -2)
+    )
+    .slice(0, 5);
   const paperTradeAnalytics = summarizePaperTrades(paperTrades);
   const paperTradeStats = paperTradeAnalytics.stats;
   const confirmPaperTradePick =
@@ -814,6 +826,7 @@ export function PopupApp() {
       modelProbabilityPercent: pick.modelProbabilityPercent,
       winProbabilityPercent: confirmPaperTradeCalculation.winProbabilityPercent,
       hitRating: pick.hitRating,
+      bestBetScore: pick.bestBetScore,
       edgePercent: pick.edgePercent ?? 0,
       netEdgePercent: pick.netEdgePercent,
       suggestedRiskDollars: confirmPaperTradeCalculation.actualCostDollars,
@@ -1731,8 +1744,8 @@ export function PopupApp() {
         <div className="research-summary-grid">
           <div className="stat-card">
             <div>
-              <div className="stat-label">Best edge</div>
-              <div className="stat-value">{formatSignedPercent(bestResearchPick?.netEdgePercent)}</div>
+              <div className="stat-label">Best bet</div>
+              <div className="stat-value">{bestResearchPick?.bestBetScore ? `${bestResearchPick.bestBetScore.toFixed(1)}/10` : "--"}</div>
             </div>
           </div>
           <div className="stat-card">
@@ -1764,6 +1777,7 @@ export function PopupApp() {
         <div className="research-metric-grid research-detail-stats">
           <span>Avg entry <strong>{formatPrice(paperTradeStats.averageEntryPriceCents)}</strong></span>
           <span>Avg model <strong>{formatPercent(paperTradeStats.averageModelProbabilityPercent)}</strong></span>
+          <span>Avg best bet <strong>{typeof paperTradeStats.averageBestBetScore === "number" ? `${paperTradeStats.averageBestBetScore.toFixed(1)}/10` : "--"}</strong></span>
           <span>Avg edge <strong>{formatSignedPercent(paperTradeStats.averageEdgePercent)}</strong></span>
           <span>Avg net <strong>{formatSignedPercent(paperTradeStats.averageNetEdgePercent)}</strong></span>
           <span>Total cost <strong>{formatDollars(paperTradeStats.totalDollarsRisked)}</strong></span>
@@ -1805,6 +1819,18 @@ export function PopupApp() {
           <div className="research-bucket-card">
             <div className="section-mini-title">Edge Buckets</div>
             {paperTradeAnalytics.edgeBuckets.map((bucket) => (
+              <div className="research-bucket-row" key={bucket.label}>
+                <span>{bucket.label}</span>
+                <span>{bucket.tradeCount} trades</span>
+                <span>Win {formatPercent(bucket.winRatePercent)}</span>
+                <span>ROI {formatSignedPercent(bucket.roiPercent)}</span>
+                <span>{formatDollars(bucket.profitLossDollars)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="research-bucket-card">
+            <div className="section-mini-title">Best Bet Score</div>
+            {paperTradeAnalytics.bestBetScoreBuckets.map((bucket) => (
               <div className="research-bucket-row" key={bucket.label}>
                 <span>{bucket.label}</span>
                 <span>{bucket.tradeCount} trades</span>
@@ -1870,6 +1896,7 @@ export function PopupApp() {
               <span>Max profit <strong>{formatDollars(confirmPaperTradeCalculation?.maxProfitDollars)}</strong></span>
               <span>Max loss <strong>{formatDollars(confirmPaperTradeCalculation?.maxLossDollars)}</strong></span>
               <span>Model <strong>{formatPercent(confirmPaperTradePick.modelProbabilityPercent)}</strong></span>
+              <span>Best bet <strong>{confirmPaperTradePick.bestBetScore ? `${confirmPaperTradePick.bestBetScore.toFixed(1)}/10` : "--"}</strong></span>
               <span>Win prob <strong>{formatPercent(confirmPaperTradeCalculation?.winProbabilityPercent)}</strong></span>
               <span>Hit rating <strong>{confirmPaperTradePick.hitRating ? `${confirmPaperTradePick.hitRating}/10` : "--"}</strong></span>
               <span>EV <strong>{formatDollars(confirmPaperTradeCalculation?.expectedValueDollars)}</strong></span>
@@ -1905,6 +1932,38 @@ export function PopupApp() {
 
         <div className="research-layout">
           <div className="research-column">
+            <div className="section-mini-title">Arb Scanner</div>
+            <div className="position-note">
+              Pure arb checks same-market YES/NO pricing. Near-arb is not guaranteed profit, but may flag tight mispricing.
+            </div>
+            <div className="positions-list">
+              {arbScannerPicks.length === 0 ? (
+                <article className="position-card">
+                  <div className="position-note">No pure or near-arb candidates in the visible research results.</div>
+                </article>
+              ) : (
+                arbScannerPicks.map((pick) => (
+                  <article className="position-card research-pick-card" key={`arb-${pick.marketTicker}`}>
+                    <div className="position-topline">
+                      <span className="market">{pick.marketTitle}</span>
+                      <span className={`research-ev-badge ${pick.arb.isOpportunity ? "positive" : ""}`}>
+                        {pick.arb.isOpportunity ? "Pure arb" : "Near arb"}
+                      </span>
+                    </div>
+                    <div className="research-metric-grid">
+                      <span>YES ask <strong>{formatPrice(pick.arb.yesAskCents)}</strong></span>
+                      <span>NO ask <strong>{formatPrice(pick.arb.noAskCents)}</strong></span>
+                      <span>Total <strong>{formatPrice(pick.arb.totalCostCents)}</strong></span>
+                      <span>Gross <strong>{formatSignedPercent(pick.arb.grossArbCents)}</strong></span>
+                      <span>Net <strong>{formatSignedPercent(pick.arb.netArbCents)}</strong></span>
+                      <span>Best bet <strong>{pick.bestBetScore ? `${pick.bestBetScore.toFixed(1)}/10` : "--"}</strong></span>
+                    </div>
+                    <div className="position-note">{pick.bestBetReason || pick.reason}</div>
+                  </article>
+                ))
+              )}
+            </div>
+
             <div className="section-mini-title">Market Scanner</div>
             <div className="position-note">
               Uses the Research Markets search above to review EV and arb candidates.
@@ -1941,6 +2000,7 @@ export function PopupApp() {
                       </div>
                       <div className="research-metric-grid">
                         <span>{pick.side} price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>
+                        <span>Best bet <strong>{pick.bestBetScore ? `${pick.bestBetScore.toFixed(1)}/10` : "--"}</strong></span>
                         <span>Model <strong>{formatPercent(pick.modelProbabilityPercent)}</strong></span>
                         <span>Hit <strong>{pick.hitRating ? `${pick.hitRating}/10` : "--"}</strong></span>
                         <span>Edge <strong>{formatSignedPercent(pick.edgePercent)}</strong></span>
@@ -1958,7 +2018,7 @@ export function PopupApp() {
                       <div className="research-arb-line">
                         Source: {pick.source} · Category: {pick.marketCategory} · Positive: {pick.positiveSignal} · Negative: {pick.negativeSignal}
                       </div>
-                      <div className="position-note">{pick.reason}</div>
+                      <div className="position-note">{pick.bestBetReason || pick.reason}</div>
                       <div className="combo-result-actions">
                         <button
                           type="button"
@@ -2002,7 +2062,7 @@ export function PopupApp() {
                       <span>{trade.contracts ?? "--"} contracts · cost {formatDollars(trade.actualCostDollars)}</span>
                     </div>
                     <div className="position-meta">
-                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · win {formatPercent(trade.winProbabilityPercent)} · hit {trade.hitRating ? `${trade.hitRating}/10` : "--"}</span>
+                      <span>Best bet {trade.bestBetScore ? `${trade.bestBetScore.toFixed(1)}/10` : "--"} · hit {trade.hitRating ? `${trade.hitRating}/10` : "--"}</span>
                       <span>EV {formatDollars(trade.expectedValueDollars)} · ROI {formatSignedPercent(trade.expectedRoiPercent)}</span>
                     </div>
                     <div className="position-meta">

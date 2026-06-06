@@ -11,6 +11,7 @@ import {
   DetailedPaperTradeStats,
   exportResearchTradesAsCsv,
   exportResearchTradesAsJson,
+  getBestBetScoreBuckets,
   getCalibrationBuckets,
   getCategoryBuckets,
   getEdgeBuckets,
@@ -47,6 +48,8 @@ export interface ResearchPick {
   currentPriceCents: number | null;
   modelProbabilityPercent: number | null;
   hitRating: number | null;
+  bestBetScore: number | null;
+  bestBetReason: string;
   edgePercent: number | null;
   netEdgePercent: number | null;
   confidence: "Low" | "Medium" | "High";
@@ -63,6 +66,7 @@ export interface ResearchAnalytics {
   stats: DetailedPaperTradeStats;
   calibrationBuckets: ResearchBucket[];
   edgeBuckets: ResearchBucket[];
+  bestBetScoreBuckets: ResearchBucket[];
   categoryBuckets: ResearchBucket[];
 }
 
@@ -93,6 +97,26 @@ function getSidePrice(market: KalshiMarketSnapshot, side: KalshiMarketSide): num
 
 function getBestBid(market: KalshiMarketSnapshot, side: KalshiMarketSide): number | null {
   return side === "YES" ? market.yesBidCents : market.noBidCents;
+}
+
+function getBidAskSpreadCents(market: KalshiMarketSnapshot): number | null {
+  if (
+    typeof market.yesAskCents === "number" &&
+    typeof market.yesBidCents === "number" &&
+    market.yesAskCents >= market.yesBidCents
+  ) {
+    return market.yesAskCents - market.yesBidCents;
+  }
+
+  if (
+    typeof market.noAskCents === "number" &&
+    typeof market.noBidCents === "number" &&
+    market.noAskCents >= market.noBidCents
+  ) {
+    return market.noAskCents - market.noBidCents;
+  }
+
+  return null;
 }
 
 function inferMarketCategory(market: KalshiMarketSnapshot): string {
@@ -191,6 +215,86 @@ export function calculateHitRating(
   const rawScore = (winProbabilityPercent / 10) + confidenceAdjustment + edgeAdjustment;
 
   return Math.max(1, Math.min(10, Math.round(rawScore)));
+}
+
+export function calculateBestBetScore(params: {
+  netEdgePercent: number | null;
+  hitRating: number | null;
+  confidence: ResearchPick["confidence"];
+  spreadCents: number | null;
+  liquidityCents: number | null;
+  arb: ArbitrageScan;
+}): { score: number | null; reason: string } {
+  if (typeof params.netEdgePercent !== "number" && typeof params.hitRating !== "number") {
+    return {
+      score: null,
+      reason: "missing model value inputs"
+    };
+  }
+
+  let score = 5;
+  const reasons: string[] = [];
+
+  if (typeof params.netEdgePercent === "number") {
+    const edgeScore = Math.max(-2.5, Math.min(2.5, params.netEdgePercent / 2));
+    score += edgeScore;
+    reasons.push(`${params.netEdgePercent.toFixed(1)}% net edge`);
+  }
+
+  if (typeof params.hitRating === "number") {
+    score += Math.max(-1, Math.min(1.25, (params.hitRating - 5) * 0.25));
+    reasons.push(`${params.hitRating}/10 hit rating`);
+  }
+
+  if (params.confidence === "High") {
+    score += 0.6;
+    reasons.push("high confidence");
+  } else if (params.confidence === "Medium") {
+    score += 0.2;
+    reasons.push("medium confidence");
+  } else {
+    score -= 0.4;
+    reasons.push("low confidence");
+  }
+
+  if (typeof params.spreadCents === "number") {
+    if (params.spreadCents <= 3) {
+      score += 0.5;
+      reasons.push("tight spread");
+    } else if (params.spreadCents > 8) {
+      score -= Math.min(1.5, (params.spreadCents - 8) / 8);
+      reasons.push("wide spread");
+    }
+  } else {
+    score -= 0.3;
+    reasons.push("spread unavailable");
+  }
+
+  if (typeof params.liquidityCents === "number") {
+    if (params.liquidityCents >= 100000) {
+      score += 0.5;
+      reasons.push("strong liquidity");
+    } else if (params.liquidityCents >= 10000) {
+      score += 0.2;
+      reasons.push("usable liquidity");
+    } else {
+      score -= 0.3;
+      reasons.push("thin liquidity");
+    }
+  }
+
+  if (params.arb.isOpportunity) {
+    score += 1;
+    reasons.push("pure arb signal");
+  } else if (typeof params.arb.netArbCents === "number" && params.arb.netArbCents > -2) {
+    score += 0.35;
+    reasons.push("near-arb pricing");
+  }
+
+  return {
+    score: Math.max(1, Math.min(10, roundTenth(score))),
+    reason: reasons.slice(0, 4).join(" · ")
+  };
 }
 
 export function getDefaultResearchSettings(): ResearchSettings {
@@ -318,6 +422,14 @@ export function generateResearchPick(
   const source = arb.isOpportunity ? "arb_scanner" : isManualProbability ? "manual" : "heuristic";
   const positiveSignal = getPositiveSignal(selectedEv.netEdgePercent, arb, confidence);
   const negativeSignal = getNegativeSignal(selectedEv.netEdgePercent, arb, confidence);
+  const bestBet = calculateBestBetScore({
+    netEdgePercent: selectedEv.netEdgePercent,
+    hitRating,
+    confidence,
+    spreadCents: getBidAskSpreadCents(market),
+    liquidityCents: market.liquidityCents,
+    arb
+  });
 
   return {
     marketTicker: market.ticker,
@@ -327,6 +439,8 @@ export function generateResearchPick(
     currentPriceCents: selectedEv.marketPriceCents,
     modelProbabilityPercent: selectedEv.modelProbabilityPercent,
     hitRating,
+    bestBetScore: bestBet.score,
+    bestBetReason: bestBet.reason,
     edgePercent: selectedEv.edgePercent,
     netEdgePercent: selectedEv.netEdgePercent,
     confidence,
@@ -357,6 +471,7 @@ export function summarizePaperTrades(trades: ResearchPaperTrade[]): ResearchAnal
     stats: summarizeDetailedPaperTrades(trades),
     calibrationBuckets: getCalibrationBuckets(trades),
     edgeBuckets: getEdgeBuckets(trades),
+    bestBetScoreBuckets: getBestBetScoreBuckets(trades),
     categoryBuckets: getCategoryBuckets(trades)
   };
 }

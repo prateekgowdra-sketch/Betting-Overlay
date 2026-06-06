@@ -478,8 +478,9 @@ function renderPaperTradeTickerLabel(
   const profitLoss = formatDollars(performance.profitLossDollars);
   const movement = formatProbabilityMovement(performance.movementCents);
   const hitRating = typeof trade.hitRating === "number" ? ` | Hit ${trade.hitRating}/10` : "";
+  const bestBetScore = typeof trade.bestBetScore === "number" ? ` | Best ${trade.bestBetScore.toFixed(1)}/10` : "";
 
-  return `${truncateTitle(trade.marketTitle)} | ${trade.side} ${price}${hitRating} | ${status} P/L ${profitLoss} | ${movement}`;
+  return `${truncateTitle(trade.marketTitle)} | ${trade.side} ${price}${bestBetScore}${hitRating} | ${status} P/L ${profitLoss} | ${movement}`;
 }
 
 type ComboStatus = "live" | "won" | "lost" | "incomplete data";
@@ -1381,6 +1382,10 @@ export function OverlayApp() {
                         <strong>{formatForecastProbability(trade.modelProbabilityPercent)}</strong>
                       </div>
                       <div className="klo-model-metric">
+                        <span>Best bet</span>
+                        <strong>{typeof trade.bestBetScore === "number" ? `${trade.bestBetScore.toFixed(1)}/10` : "--"}</strong>
+                      </div>
+                      <div className="klo-model-metric">
                         <span>Hit rating</span>
                         <strong>{typeof trade.hitRating === "number" ? `${trade.hitRating}/10` : "--"}</strong>
                       </div>
@@ -1478,6 +1483,10 @@ export function OverlayApp() {
                       <div className="klo-card-meta">
                         <span>Hit rating</span>
                         <span>{typeof trade.hitRating === "number" ? `${trade.hitRating}/10` : "--"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Best bet score</span>
+                        <span>{typeof trade.bestBetScore === "number" ? `${trade.bestBetScore.toFixed(1)}/10` : "--"}</span>
                       </div>
                       <div className="klo-card-meta">
                         <span>Source</span>

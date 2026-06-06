@@ -475,6 +475,10 @@ export async function getResearchPaperTrades(): Promise<ResearchPaperTrade[]> {
             typeof trade.hitRating === "number" && Number.isFinite(trade.hitRating)
               ? Math.max(1, Math.min(10, Math.round(trade.hitRating)))
               : null,
+          bestBetScore:
+            typeof trade.bestBetScore === "number" && Number.isFinite(trade.bestBetScore)
+              ? Math.max(1, Math.min(10, trade.bestBetScore))
+              : null,
           edgePercent:
             typeof trade.edgePercent === "number" && Number.isFinite(trade.edgePercent)
               ? trade.edgePercent

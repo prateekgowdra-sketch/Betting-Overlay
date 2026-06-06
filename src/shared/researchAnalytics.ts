@@ -3,6 +3,8 @@ export interface ResearchAnalyticsTrade {
   side: "YES" | "NO";
   entryPriceCents: number;
   modelProbabilityPercent: number;
+  hitRating?: number | null;
+  bestBetScore?: number | null;
   edgePercent: number;
   netEdgePercent?: number | null;
   suggestedRiskDollars: number;
@@ -30,6 +32,7 @@ export interface DetailedPaperTradeStats {
   winRatePercent: number | null;
   averageEntryPriceCents: number | null;
   averageModelProbabilityPercent: number | null;
+  averageBestBetScore: number | null;
   averageEdgePercent: number | null;
   averageNetEdgePercent: number | null;
   averageExpectedRoiPercent: number | null;
@@ -274,6 +277,11 @@ export function summarizeDetailedPaperTrades(
     averageModelProbabilityPercent: average(
       trades.map((trade) => trade.modelProbabilityPercent)
     ),
+    averageBestBetScore: average(
+      trades
+        .map((trade) => trade.bestBetScore)
+        .filter((value): value is number => typeof value === "number")
+    ),
     averageEdgePercent: average(trades.map((trade) => trade.edgePercent)),
     averageNetEdgePercent: average(
       trades
@@ -352,6 +360,19 @@ export function getEdgeBuckets(trades: ResearchAnalyticsTrade[]): ResearchBucket
   );
 }
 
+export function getBestBetScoreBuckets(trades: ResearchAnalyticsTrade[]): ResearchBucket[] {
+  return bucketByRanges(
+    trades,
+    [
+      { label: "1-4", min: 1, max: 4 },
+      { label: "4-6", min: 4, max: 6 },
+      { label: "6-8", min: 6, max: 8 },
+      { label: "8-10", min: 8, max: null }
+    ],
+    (trade) => trade.bestBetScore ?? 0
+  );
+}
+
 export function getCategoryBuckets(trades: ResearchAnalyticsTrade[]): ResearchBucket[] {
   const categories = ["sports", "politics", "economics", "weather", "crypto", "other"];
 
@@ -381,6 +402,8 @@ export function exportResearchTradesAsCsv(trades: ResearchAnalyticsTrade[]): str
     "side",
     "entryPriceCents",
     "modelProbabilityPercent",
+    "hitRating",
+    "bestBetScore",
     "edgePercent",
     "netEdgePercent",
     "suggestedRiskDollars",

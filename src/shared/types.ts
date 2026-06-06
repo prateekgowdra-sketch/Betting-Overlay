@@ -323,6 +323,7 @@ export interface ResearchPaperTrade {
   modelProbabilityPercent: number;
   winProbabilityPercent?: number | null;
   hitRating?: number | null;
+  bestBetScore?: number | null;
   edgePercent: number;
   netEdgePercent?: number | null;
   suggestedRiskDollars: number;
