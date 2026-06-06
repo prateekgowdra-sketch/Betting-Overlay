@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "backend": "node backend/server.js",
+    "train:research": "node backend/scripts/trainResearchModel.js",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

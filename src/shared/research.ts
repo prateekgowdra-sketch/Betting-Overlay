@@ -46,6 +46,7 @@ export interface ResearchPick {
   side: KalshiMarketSide;
   currentPriceCents: number | null;
   modelProbabilityPercent: number | null;
+  hitRating: number | null;
   edgePercent: number | null;
   netEdgePercent: number | null;
   confidence: "Low" | "Medium" | "High";
@@ -173,6 +174,25 @@ function getNegativeSignal(
   return "execution risk";
 }
 
+export function calculateHitRating(
+  winProbabilityPercent: number | null,
+  netEdgePercent: number | null,
+  confidence: ResearchPick["confidence"] = "Low"
+): number | null {
+  if (typeof winProbabilityPercent !== "number" || !Number.isFinite(winProbabilityPercent)) {
+    return null;
+  }
+
+  const confidenceAdjustment = confidence === "High" ? 0.5 : confidence === "Medium" ? 0.2 : -0.2;
+  const edgeAdjustment =
+    typeof netEdgePercent === "number" && Number.isFinite(netEdgePercent)
+      ? Math.max(-0.75, Math.min(0.75, netEdgePercent / 12))
+      : 0;
+  const rawScore = (winProbabilityPercent / 10) + confidenceAdjustment + edgeAdjustment;
+
+  return Math.max(1, Math.min(10, Math.round(rawScore)));
+}
+
 export function getDefaultResearchSettings(): ResearchSettings {
   return {
     enableRealTrading: false,
@@ -277,6 +297,11 @@ export function generateResearchPick(
   const selectedEv =
     (yesEv.netEdgePercent ?? -Infinity) >= (noEv.netEdgePercent ?? -Infinity) ? yesEv : noEv;
   const confidence = heuristic.confidence;
+  const hitRating = calculateHitRating(
+    selectedEv.modelProbabilityPercent,
+    selectedEv.netEdgePercent,
+    confidence
+  );
   const netEdge = selectedEv.netEdgePercent ?? 0;
   const riskScale = Math.max(0, Math.min(1, netEdge / Math.max(1, settings.minimumEdgePercent * 2)));
   const suggestedRiskDollars =
@@ -301,6 +326,7 @@ export function generateResearchPick(
     side: selectedEv.side,
     currentPriceCents: selectedEv.marketPriceCents,
     modelProbabilityPercent: selectedEv.modelProbabilityPercent,
+    hitRating,
     edgePercent: selectedEv.edgePercent,
     netEdgePercent: selectedEv.netEdgePercent,
     confidence,

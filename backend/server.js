@@ -7,6 +7,7 @@ import { kalshiClient } from "./services/kalshiClient.js";
 import { kalshiService } from "./services/kalshiService.js";
 import { liveSportsService } from "./services/liveSportsService.js";
 import { manualParlayStorageService } from "./services/manualParlayStorageService.js";
+import { researchModelService } from "./services/researchModelService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -78,6 +79,9 @@ const AVAILABLE_ROUTES = [
   "GET /api/kalshi/sports/markets",
   "GET /api/kalshi/market/:ticker",
   "GET /api/kalshi/market/:ticker/orderbook",
+  "GET /api/research/model/status",
+  "POST /api/research/model/train",
+  "GET /api/research/forecast/:ticker",
   "GET /api/kalshi/positions/:gameId",
   "GET /api/parlays",
   "POST /api/parlays",
@@ -129,6 +133,7 @@ export async function handleBackendRequest(request, response) {
   const kalshiMatch = url.pathname.match(/^\/api\/kalshi\/positions\/([^/]+)$/);
   const kalshiMarketMatch = url.pathname.match(/^\/api\/kalshi\/market\/([^/]+)$/);
   const kalshiOrderbookMatch = url.pathname.match(/^\/api\/kalshi\/market\/([^/]+)\/orderbook$/);
+  const researchForecastMatch = url.pathname.match(/^\/api\/research\/forecast\/([^/]+)$/);
   const parlayMatch = url.pathname.match(/^\/api\/parlays\/([^/]+)$/);
 
   if (request.method === "GET" && url.pathname === "/api/parlays") {
@@ -177,6 +182,39 @@ export async function handleBackendRequest(request, response) {
 
   if (request.method === "GET" && url.pathname === "/api/live/games/today") {
     sendJson(response, 200, await liveSportsService.getTodayGames());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/research/model/status") {
+    sendJson(response, 200, researchModelService.getStatus());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/research/model/train") {
+    sendJson(response, 200, researchModelService.trainModel());
+    return;
+  }
+
+  if (request.method === "GET" && researchForecastMatch) {
+    try {
+      const market = await kalshiService.getPublicMarket(researchForecastMatch[1]);
+
+      if (!market.market) {
+        sendJson(response, 404, { error: "Unknown ticker" });
+        return;
+      }
+
+      researchModelService.recordMarketSnapshots([market.market]);
+      sendJson(response, 200, {
+        ticker: researchForecastMatch[1],
+        forecast: researchModelService.forecastMarket(market.market)
+      });
+    } catch (error) {
+      sendJson(response, 502, {
+        error: "Failed to forecast research market",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
     return;
   }
 

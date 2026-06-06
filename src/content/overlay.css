@@ -409,6 +409,18 @@
   border-color: rgba(149, 167, 187, 0.22);
 }
 
+.klo-paper-trade-card {
+  border-color: rgba(91, 176, 255, 0.22);
+}
+
+.klo-paper-trade-card.is-good {
+  border-color: rgba(97, 235, 174, 0.28);
+}
+
+.klo-paper-trade-card.is-bad {
+  border-color: rgba(241, 91, 91, 0.28);
+}
+
 .klo-scoreboard-card {
   display: flex;
   flex-direction: column;

@@ -1,5 +1,6 @@
 import { kalshiClient } from "./kalshiClient.js";
 import { parseKalshiMarketTitle } from "./marketParsingService.js";
+import { researchModelService } from "./researchModelService.js";
 
 const marketSearchCache = new Map();
 const MARKET_SEARCH_CACHE_TTL_MS = 30000;
@@ -2328,13 +2329,16 @@ class KalshiService {
   async getPublicMarkets(query = {}) {
     const response = await kalshiClient.getPublicMarkets(query);
     const positionsByTicker = await this.getPositionsByTickerSafe();
+    const markets = (response.markets ?? [])
+      .map((market) => normalizeTrackedMarket(market, positionsByTicker.get(market.ticker) ?? null))
+      .filter(Boolean);
+
+    researchModelService.recordMarketSnapshots(markets);
 
     return {
       mode: "real",
       environment: this.getPublicEnvironment(),
-      markets: (response.markets ?? [])
-        .map((market) => normalizeTrackedMarket(market, positionsByTicker.get(market.ticker) ?? null))
-        .filter(Boolean),
+      markets,
       cursor: response.cursor ?? null,
       raw: response
     };
@@ -2628,6 +2632,7 @@ class KalshiService {
       .sort((a, b) => marketSortScore(b, filters) - marketSortScore(a, filters))
       .filter((market, index, allMarkets) => allMarkets.findIndex((entry) => entry.ticker === market.ticker) === index)
       .slice(0, limit);
+    researchModelService.recordMarketSnapshots(markets);
     const queryInfo = buildSearchQueryInfo(filters.search, markets.length);
 
     const result = {

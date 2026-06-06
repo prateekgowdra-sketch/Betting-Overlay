@@ -813,6 +813,7 @@ export function PopupApp() {
       entryPriceCents: pick.currentPriceCents,
       modelProbabilityPercent: pick.modelProbabilityPercent,
       winProbabilityPercent: confirmPaperTradeCalculation.winProbabilityPercent,
+      hitRating: pick.hitRating,
       edgePercent: pick.edgePercent ?? 0,
       netEdgePercent: pick.netEdgePercent,
       suggestedRiskDollars: confirmPaperTradeCalculation.actualCostDollars,
@@ -1870,6 +1871,7 @@ export function PopupApp() {
               <span>Max loss <strong>{formatDollars(confirmPaperTradeCalculation?.maxLossDollars)}</strong></span>
               <span>Model <strong>{formatPercent(confirmPaperTradePick.modelProbabilityPercent)}</strong></span>
               <span>Win prob <strong>{formatPercent(confirmPaperTradeCalculation?.winProbabilityPercent)}</strong></span>
+              <span>Hit rating <strong>{confirmPaperTradePick.hitRating ? `${confirmPaperTradePick.hitRating}/10` : "--"}</strong></span>
               <span>EV <strong>{formatDollars(confirmPaperTradeCalculation?.expectedValueDollars)}</strong></span>
               <span>Exp ROI <strong>{formatSignedPercent(confirmPaperTradeCalculation?.expectedRoiPercent)}</strong></span>
               <span>Edge <strong>{formatSignedPercent(confirmPaperTradePick.edgePercent)}</strong></span>
@@ -1940,6 +1942,7 @@ export function PopupApp() {
                       <div className="research-metric-grid">
                         <span>{pick.side} price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>
                         <span>Model <strong>{formatPercent(pick.modelProbabilityPercent)}</strong></span>
+                        <span>Hit <strong>{pick.hitRating ? `${pick.hitRating}/10` : "--"}</strong></span>
                         <span>Edge <strong>{formatSignedPercent(pick.edgePercent)}</strong></span>
                         <span>Net <strong>{formatSignedPercent(pick.netEdgePercent)}</strong></span>
                         <span>Contracts <strong>{defaultTradePreview?.contracts ?? "--"}</strong></span>
@@ -1999,7 +2002,7 @@ export function PopupApp() {
                       <span>{trade.contracts ?? "--"} contracts · cost {formatDollars(trade.actualCostDollars)}</span>
                     </div>
                     <div className="position-meta">
-                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · win {formatPercent(trade.winProbabilityPercent)}</span>
+                      <span>Model {formatPercent(trade.modelProbabilityPercent)} · win {formatPercent(trade.winProbabilityPercent)} · hit {trade.hitRating ? `${trade.hitRating}/10` : "--"}</span>
                       <span>EV {formatDollars(trade.expectedValueDollars)} · ROI {formatSignedPercent(trade.expectedRoiPercent)}</span>
                     </div>
                     <div className="position-meta">

@@ -316,6 +316,76 @@ function getBetPerformance(
   };
 }
 
+interface PaperTradeOverlayPerformance {
+  currentSidePriceCents: number | null;
+  isUsingEntryFallback: boolean;
+  movementCents: number | null;
+  movementStatus: KalshiBetMovementStatus;
+  cashoutValueDollars: number | null;
+  profitLossDollars: number | null;
+  riskDollars: number;
+}
+
+function getPaperTradeRisk(trade: ResearchPaperTrade): number {
+  return trade.actualCostDollars ?? trade.suggestedRiskDollars ?? trade.riskInputDollars ?? 0;
+}
+
+function getPaperTradeContracts(trade: ResearchPaperTrade): number {
+  if (typeof trade.contracts === "number" && Number.isFinite(trade.contracts)) {
+    return trade.contracts;
+  }
+
+  const risk = getPaperTradeRisk(trade);
+  return trade.entryPriceCents > 0 ? Math.floor(risk / (trade.entryPriceCents / 100)) : 0;
+}
+
+function getPaperTradePerformance(
+  trade: ResearchPaperTrade,
+  market?: KalshiMarketSnapshot
+): PaperTradeOverlayPerformance {
+  const riskDollars = getPaperTradeRisk(trade);
+  const contracts = getPaperTradeContracts(trade);
+  const realizedProfitLoss = trade.realizedPnlDollars ?? trade.profitLossDollars ?? null;
+
+  if (trade.status !== "open") {
+    const exitPrice = trade.exitPriceCents ?? trade.exitValueCents ?? null;
+    return {
+      currentSidePriceCents: exitPrice,
+      isUsingEntryFallback: false,
+      movementCents: typeof exitPrice === "number" ? exitPrice - trade.entryPriceCents : null,
+      movementStatus:
+        typeof realizedProfitLoss !== "number"
+          ? "unavailable"
+          : realizedProfitLoss > 0
+            ? "favorable"
+            : realizedProfitLoss < 0
+              ? "unfavorable"
+              : "unchanged",
+      cashoutValueDollars: trade.exitValueDollars ?? null,
+      profitLossDollars: realizedProfitLoss,
+      riskDollars
+    };
+  }
+
+  const liveSidePriceCents = getSideProbability(market, trade.side);
+  const isUsingEntryFallback = typeof liveSidePriceCents !== "number";
+  const currentSidePriceCents = liveSidePriceCents ?? trade.entryPriceCents;
+  const movementCents = currentSidePriceCents - trade.entryPriceCents;
+  const profitLossDollars = (contracts * movementCents) / 100;
+  const movementStatus: KalshiBetMovementStatus =
+    movementCents > 0 ? "favorable" : movementCents < 0 ? "unfavorable" : "unchanged";
+
+  return {
+    currentSidePriceCents,
+    isUsingEntryFallback,
+    movementCents,
+    movementStatus,
+    cashoutValueDollars: (contracts * currentSidePriceCents) / 100,
+    profitLossDollars,
+    riskDollars
+  };
+}
+
 function getMovementTone(
   movement: number | null
 ): "is-good" | "is-live" | "is-bad" | "is-unavailable" {
@@ -397,6 +467,19 @@ function renderTickerLabel(
   }
 
   return `${truncateTitle(getDisplayTitle(item))} | ${item.userSide} ${currentProbability} | ${formatEdge(forecast.edgeCents)} edge | ${movement} ${status}`;
+}
+
+function renderPaperTradeTickerLabel(
+  trade: ResearchPaperTrade,
+  performance: PaperTradeOverlayPerformance
+): string {
+  const status = trade.status === "open" ? "paper" : trade.status;
+  const price = formatKalshiPriceAsPercent(performance.currentSidePriceCents ?? trade.entryPriceCents);
+  const profitLoss = formatDollars(performance.profitLossDollars);
+  const movement = formatProbabilityMovement(performance.movementCents);
+  const hitRating = typeof trade.hitRating === "number" ? ` | Hit ${trade.hitRating}/10` : "";
+
+  return `${truncateTitle(trade.marketTitle)} | ${trade.side} ${price}${hitRating} | ${status} P/L ${profitLoss} | ${movement}`;
 }
 
 type ComboStatus = "live" | "won" | "lost" | "incomplete data";
@@ -801,9 +884,11 @@ export function OverlayApp() {
 
       const visibleWatchlist = watchlist.filter((item) => !item.hidden && !item.archived);
       const activeCombos = comboTrackers.filter((combo) => !combo.archived);
+      const paperTradeTickers = paperTrades.map((trade) => trade.marketTicker);
       const watchedTickers = [
         ...visibleWatchlist.map((item) => item.ticker),
-        ...activeCombos.flatMap((combo) => combo.legs.map((leg) => leg.ticker))
+        ...activeCombos.flatMap((combo) => combo.legs.map((leg) => leg.ticker)),
+        ...paperTradeTickers
       ].filter((ticker, index, allTickers) => allTickers.indexOf(ticker) === index);
 
       if (watchedTickers.length === 0) {
@@ -881,7 +966,7 @@ export function OverlayApp() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [settings, watchlist, comboTrackers]);
+  }, [settings, watchlist, comboTrackers, paperTrades]);
 
   async function updateUiState(next: OverlayUiState) {
     setUiState(next);
@@ -944,6 +1029,17 @@ export function OverlayApp() {
       })),
     [activeComboTrackers, marketsByTicker]
   );
+  const paperTradeCards = useMemo(
+    () =>
+      paperTrades.map((trade) => ({
+        trade,
+        market: marketsByTicker[trade.marketTicker],
+        performance: getPaperTradePerformance(trade, marketsByTicker[trade.marketTicker])
+      })),
+    [paperTrades, marketsByTicker]
+  );
+  const openPaperTradeCards = paperTradeCards.filter(({ trade }) => trade.status === "open");
+  const closedPaperTradeCards = paperTradeCards.filter(({ trade }) => trade.status !== "open");
   const activeWatchedMarkets = watchedMarkets.filter(({ market }) => !isResolvedMarket(market));
   const finalizedWatchedMarkets = watchedMarkets.filter(({ market }) => isResolvedMarket(market));
   const portfolioSummary = useMemo(() => {
@@ -963,18 +1059,29 @@ export function OverlayApp() {
     const comboRisk = comboSummaries.reduce((sum, entry) => sum + entry.combo.amountRisked, 0);
     const comboValue = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedCurrentValue ?? 0), 0);
     const comboProfit = comboSummaries.reduce((sum, entry) => sum + (entry.summary.estimatedProfitLoss ?? 0), 0);
+    const paperRisk = openPaperTradeCards.reduce((sum, entry) => sum + entry.performance.riskDollars, 0);
+    const paperValue = openPaperTradeCards.reduce((sum, entry) => sum + (entry.performance.cashoutValueDollars ?? 0), 0);
+    const paperProfit = paperTradeCards.reduce((sum, entry) => sum + (entry.performance.profitLossDollars ?? 0), 0);
 
     return {
-      totalRisk: watchedRisk + comboRisk,
-      estimatedValue: watchedValue + comboValue,
-      profitLoss: watchedProfitLoss + comboProfit,
+      totalRisk: watchedRisk + comboRisk + paperRisk,
+      estimatedValue: watchedValue + comboValue + paperValue,
+      profitLoss: watchedProfitLoss + comboProfit + paperProfit,
       activeMarkets: activeWatchedMarkets.length,
       activeCombos: comboSummaries.length,
+      openPaperTrades: openPaperTradeCards.length,
       favorableCount: watchedPerformances.filter((entry) => entry.performance.movementStatus === "favorable").length,
       unfavorableCount: watchedPerformances.filter((entry) => entry.performance.movementStatus === "unfavorable").length,
       settledCount: finalizedWatchedMarkets.length
     };
-  }, [watchedMarkets, activeWatchedMarkets.length, finalizedWatchedMarkets.length, comboSummaries]);
+  }, [
+    watchedMarkets,
+    activeWatchedMarkets.length,
+    finalizedWatchedMarkets.length,
+    comboSummaries,
+    openPaperTradeCards,
+    paperTradeCards
+  ]);
   const researchTickerSummary = useMemo(() => {
     const paperTradeAnalytics = summarizePaperTrades(paperTrades);
     const picks = researchSettings
@@ -993,7 +1100,11 @@ export function OverlayApp() {
     return {
       bestEdge: bestPick?.netEdgePercent ?? null,
       pickCount: picks.length,
-      paperProfitLoss: paperTradeAnalytics.stats.totalProfitLossDollars
+      paperProfitLoss: paperTradeAnalytics.stats.totalProfitLossDollars,
+      openPaperTrades: paperTradeAnalytics.stats.openCount,
+      paperRisk: paperTrades
+        .filter((trade) => trade.status === "open")
+        .reduce((sum, trade) => sum + getPaperTradeRisk(trade), 0)
     };
   }, [activeWatchedMarkets, paperTrades, researchSettings]);
   const watchCount = watchedMarkets.length;
@@ -1048,7 +1159,7 @@ export function OverlayApp() {
   }
 
   const toggleLabel = uiState.viewMode === "ticker" ? "Cards" : "Ticker";
-  const tickerTotalItems = activeWatchedMarkets.length + comboSummaries.length;
+  const tickerTotalItems = activeWatchedMarkets.length + comboSummaries.length + openPaperTradeCards.length;
   const primaryTickerText =
     activeWatchedMarkets.length > 0
       ? renderTickerLabel(
@@ -1062,6 +1173,8 @@ export function OverlayApp() {
         )
       : comboSummaries.length > 0
         ? renderComboTickerLabel(comboSummaries[0].combo, comboSummaries[0].summary)
+        : openPaperTradeCards.length > 0
+          ? renderPaperTradeTickerLabel(openPaperTradeCards[0].trade, openPaperTradeCards[0].performance)
         : watchedMarkets.length === 0
           ? "Search market or combo in the popup to begin tracking."
           : "No active watched markets. Settled markets are in card view.";
@@ -1074,6 +1187,8 @@ export function OverlayApp() {
       ? getMovementTone(getBetPerformance(activeWatchedMarkets[0].item, activeWatchedMarkets[0].market).movementCents)
       : comboSummaries.length > 0
         ? comboTone(comboSummaries[0].summary.status)
+        : openPaperTradeCards.length > 0
+          ? getMovementTone(openPaperTradeCards[0].performance.movementCents)
         : "is-unavailable";
 
   return (
@@ -1100,9 +1215,9 @@ export function OverlayApp() {
             </div>
             <span
               className="klo-info-chip klo-research-chip"
-              title={`Research | Best edge ${formatEdge(researchTickerSummary.bestEdge)} | Picks ${researchTickerSummary.pickCount} | Paper P/L ${formatDollars(researchTickerSummary.paperProfitLoss)}`}
+              title={`Research | Best edge ${formatEdge(researchTickerSummary.bestEdge)} | Picks ${researchTickerSummary.pickCount} | Paper ${researchTickerSummary.openPaperTrades} open | Risk ${formatDollars(researchTickerSummary.paperRisk)} | P/L ${formatDollars(researchTickerSummary.paperProfitLoss)}`}
             >
-              Research | Best {formatEdge(researchTickerSummary.bestEdge)} | Picks {researchTickerSummary.pickCount} | P/L {formatDollars(researchTickerSummary.paperProfitLoss)}
+              Paper {researchTickerSummary.openPaperTrades} | Risk {formatDollars(researchTickerSummary.paperRisk)} | P/L {formatDollars(researchTickerSummary.paperProfitLoss)}
             </span>
           </div>
 
@@ -1196,6 +1311,7 @@ export function OverlayApp() {
             <div className="klo-summary-chips">
               <span className="klo-summary-chip is-live">{portfolioSummary.activeMarkets} active markets</span>
               <span className="klo-summary-chip is-live">{portfolioSummary.activeCombos} active combos</span>
+              <span className="klo-summary-chip is-live">{portfolioSummary.openPaperTrades} paper open</span>
               <span className="klo-summary-chip is-good">{portfolioSummary.favorableCount} favorable</span>
               <span className="klo-summary-chip is-bad">{portfolioSummary.unfavorableCount} unfavorable</span>
               <span className="klo-summary-chip is-unavailable">{portfolioSummary.settledCount} settled</span>
@@ -1226,6 +1342,160 @@ export function OverlayApp() {
             {overlayStatus.message ? (
               <div className="klo-scoreboard-meta">{overlayStatus.message}</div>
             ) : null}
+          </section>
+
+          <section className="klo-card-section">
+            <div className="klo-section-title">Paper Trades</div>
+            {paperTradeCards.length === 0 ? (
+              <article className="klo-position-card">
+                <div className="klo-card-title">No paper trades yet</div>
+                <div className="klo-card-meta">
+                  <span>Open Research Mode in the popup and place a paper trade to track it here.</span>
+                </div>
+              </article>
+            ) : (
+              paperTradeCards.map(({ trade, market, performance }) => {
+                const tone = getMovementTone(performance.movementCents);
+                const isOpen = trade.status === "open";
+                const statusLabel = isOpen ? "paper open" : trade.settlementResult?.toLowerCase() ?? trade.status;
+                const liveOrExitLabel = isOpen
+                  ? performance.isUsingEntryFallback
+                    ? "Current (entry)"
+                    : "Current live"
+                  : "Exit";
+
+                return (
+                  <article className={`klo-position-card klo-paper-trade-card ${tone}`} key={`paper-${trade.id}`}>
+                    <div className="klo-card-topline">
+                      <div className="klo-card-title">{trade.marketTitle}</div>
+                      <div className="klo-card-action-cluster">
+                        <span className={`klo-status-badge ${isOpen ? "is-live" : tone}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="klo-model-strip">
+                      <div className="klo-model-metric">
+                        <span>Model</span>
+                        <strong>{formatForecastProbability(trade.modelProbabilityPercent)}</strong>
+                      </div>
+                      <div className="klo-model-metric">
+                        <span>Hit rating</span>
+                        <strong>{typeof trade.hitRating === "number" ? `${trade.hitRating}/10` : "--"}</strong>
+                      </div>
+                      <div className={`klo-model-metric ${edgeTone(trade.edgePercent)}`}>
+                        <span>Edge</span>
+                        <strong>{formatEdge(trade.edgePercent)}</strong>
+                      </div>
+                      <div className={`klo-model-metric ${edgeTone(trade.netEdgePercent)}`}>
+                        <span>Net edge</span>
+                        <strong>{formatEdge(trade.netEdgePercent)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="klo-card-primary-grid">
+                      <div className="klo-primary-row">
+                        <span>Side</span>
+                        <strong>{trade.side}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Entry</span>
+                        <strong>{formatKalshiPriceAsPercent(trade.entryPriceCents)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>{liveOrExitLabel}</span>
+                        <strong>{formatKalshiPriceAsPercent(performance.currentSidePriceCents)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Move</span>
+                        <strong className={`klo-move-pill ${tone}`}>
+                          {formatProbabilityMovement(performance.movementCents)}
+                        </strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Contracts</span>
+                        <strong>{getPaperTradeContracts(trade)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Actual cost</span>
+                        <strong>{formatDollars(performance.riskDollars)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>{isOpen ? "Cashout" : "Exit value"}</span>
+                        <strong>{formatDollars(performance.cashoutValueDollars)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>P/L</span>
+                        <strong className={`klo-outcome-text ${tone}`}>
+                          {formatDollars(performance.profitLossDollars)}
+                        </strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Max profit</span>
+                        <strong>{formatDollars(trade.maxProfitDollars)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Max loss</span>
+                        <strong>{formatDollars(trade.maxLossDollars)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>EV</span>
+                        <strong>{formatDollars(trade.expectedValueDollars)}</strong>
+                      </div>
+                      <div className="klo-primary-row">
+                        <span>Expected ROI</span>
+                        <strong>{formatEdge(trade.expectedRoiPercent)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="klo-card-context-line">
+                      {isOpen
+                        ? performance.isUsingEntryFallback
+                          ? "Live paper cashout unavailable; using entry price until market data syncs."
+                          : "Paper cashout estimated from live Kalshi market price."
+                        : `Paper trade ${statusLabel}; realized P/L is stored from Research Mode.`}
+                    </div>
+
+                    <details className="klo-details">
+                      <summary>Details</summary>
+                      <div className="klo-card-meta">
+                        <span>Ticker</span>
+                        <span>{trade.marketTicker}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Market status</span>
+                        <span>{getLifecycleLabel(market)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Risk input</span>
+                        <span>{formatDollars(trade.riskInputDollars)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Win probability</span>
+                        <span>{formatForecastProbability(trade.winProbabilityPercent)}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Hit rating</span>
+                        <span>{typeof trade.hitRating === "number" ? `${trade.hitRating}/10` : "--"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Source</span>
+                        <span>{trade.source ?? "heuristic"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Model version</span>
+                        <span>{trade.modelVersion ?? "--"}</span>
+                      </div>
+                      <div className="klo-card-meta">
+                        <span>Reason</span>
+                        <span>{trade.modelReason ?? "--"}</span>
+                      </div>
+                    </details>
+                  </article>
+                );
+              })
+            )}
           </section>
 
           <section className="klo-card-section">
