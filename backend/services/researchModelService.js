@@ -320,26 +320,35 @@ class ResearchModelService {
   }
 
   recordMarketSnapshots(markets = []) {
-    const capturedAt = new Date().toISOString();
-    const nextSnapshots = markets
-      .map((market) => snapshotFromMarket(market, capturedAt))
-      .filter(Boolean);
+    try {
+      const capturedAt = new Date().toISOString();
+      const nextSnapshots = markets
+        .map((market) => snapshotFromMarket(market, capturedAt))
+        .filter(Boolean);
 
-    if (nextSnapshots.length === 0) {
+      if (nextSnapshots.length === 0) {
+        return {
+          recorded: 0,
+          totalSnapshots: this.listSnapshots().length
+        };
+      }
+
+      const existing = this.listSnapshots();
+      const merged = labelHistoricalSnapshots(dedupeSnapshots([...existing, ...nextSnapshots]));
+      writeJsonFile(SNAPSHOTS_PATH, merged);
+
+      return {
+        recorded: nextSnapshots.length,
+        totalSnapshots: merged.length
+      };
+    } catch (error) {
       return {
         recorded: 0,
-        totalSnapshots: this.listSnapshots().length
+        totalSnapshots: 0,
+        skipped: true,
+        reason: error instanceof Error ? error.message : "snapshot write failed"
       };
     }
-
-    const existing = this.listSnapshots();
-    const merged = labelHistoricalSnapshots(dedupeSnapshots([...existing, ...nextSnapshots]));
-    writeJsonFile(SNAPSHOTS_PATH, merged);
-
-    return {
-      recorded: nextSnapshots.length,
-      totalSnapshots: merged.length
-    };
   }
 
   getTrainingExamples() {

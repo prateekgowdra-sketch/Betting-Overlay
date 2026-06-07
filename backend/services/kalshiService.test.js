@@ -125,6 +125,21 @@ test("smart search treats Rangers as an ambiguous multi-sport query", () => {
   assert.ok(teams.includes("New York Rangers NHL"));
 });
 
+test("smart search detects Braves as an MLB team", () => {
+  const queryInfo = buildSearchQueryInfo("braves", 2);
+
+  assert.ok(queryInfo.expandedTerms.includes("atlanta braves"));
+  assert.ok(queryInfo.expandedTerms.includes("atl"));
+  assert.deepEqual(queryInfo.detectedSports, ["MLB"]);
+  assert.equal(queryInfo.detectedTeams[0].team, "Atlanta Braves");
+});
+
+test("Braves search queries MLB series even without an explicit sport filter", () => {
+  const seriesTickers = getSearchSeriesTickers({ search: "braves" });
+
+  assert.ok(seriesTickers.includes("KXMLB"));
+});
+
 test("marketMatchesFilter supports matchup-style alias searches", () => {
   const market = normalizeTrackedMarket({
     ticker: "KXMLBGAME-26JUN03TEXSTL-TEX",
@@ -140,6 +155,54 @@ test("marketMatchesFilter supports matchup-style alias searches", () => {
   });
 
   assert.equal(marketMatchesFilter(market, { search: "rangers cardinals" }), true);
+});
+
+test("marketMatchesFilter supports Braves nickname and full-name searches", () => {
+  const market = normalizeTrackedMarket({
+    ticker: "KXMLBGAME-26JUN08ATLNYM-ATL",
+    event_ticker: "KXMLBGAME-26JUN08ATLNYM",
+    title: "Atlanta Braves to beat the New York Mets?",
+    status: "open",
+    yes_bid_cents: 44,
+    yes_ask_cents: 46,
+    no_bid_cents: 54,
+    no_ask_cents: 56,
+    last_price_cents: 45,
+    updated_at: "2026-06-06T18:30:00Z"
+  });
+
+  assert.equal(marketMatchesFilter(market, { sport: "mlb", search: "braves" }), true);
+  assert.equal(marketMatchesFilter(market, { sport: "mlb", search: "atlanta braves" }), true);
+});
+
+test("Braves search rejects markets that only mention ATL in the event ticker", () => {
+  const opponentMarket = normalizeTrackedMarket({
+    ticker: "KXMLBGAME-26JUN08ATLNYM-NYM",
+    event_ticker: "KXMLBGAME-26JUN08ATLNYM",
+    title: "New York Mets to win",
+    status: "open",
+    yes_bid_cents: 54,
+    yes_ask_cents: 56,
+    no_bid_cents: 44,
+    no_ask_cents: 46,
+    last_price_cents: 55,
+    updated_at: "2026-06-06T18:30:00Z"
+  });
+  const totalMarket = normalizeTrackedMarket({
+    ticker: "KXMLBTOTAL-26JUN08ATLNYM-8",
+    event_ticker: "KXMLBGAME-26JUN08ATLNYM",
+    title: "Will the game total go over 8 runs?",
+    status: "open",
+    yes_bid_cents: 48,
+    yes_ask_cents: 50,
+    no_bid_cents: 50,
+    no_ask_cents: 52,
+    last_price_cents: 49,
+    updated_at: "2026-06-06T18:30:00Z"
+  });
+
+  assert.equal(marketMatchesFilter(opponentMarket, { sport: "mlb", search: "braves" }), false);
+  assert.equal(marketMatchesFilter(totalMarket, { sport: "mlb", search: "braves" }), false);
 });
 
 test("marketMatchesFilter rejects generic-only sports searches", () => {

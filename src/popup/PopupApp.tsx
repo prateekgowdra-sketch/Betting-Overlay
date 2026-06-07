@@ -137,6 +137,27 @@ function formatDetectedTeams(queryInfo: KalshiMarketsResponse["queryInfo"] | nul
     : `Detected team: ${teams}`;
 }
 
+function formatValueLabel(label: string): string {
+  if (label === "Positive EV") {
+    return "Good value";
+  }
+
+  if (label === "Negative EV") {
+    return "Poor value";
+  }
+
+  return label === "Neutral" ? "Fair price" : label;
+}
+
+function formatValueExplanation(pick: {
+  side: KalshiMarketSide;
+  modelProbabilityPercent: number | null;
+  currentPriceCents: number | null;
+  netEdgePercent: number | null;
+}): string {
+  return `${pick.side} value: model ${formatPercent(pick.modelProbabilityPercent)} vs price ${formatPrice(pick.currentPriceCents)} after buffer ${formatSignedPercent(pick.netEdgePercent)}`;
+}
+
 function getDefaultEntryPrice(side: KalshiMarketSide, market: KalshiMarketSnapshot): number {
   if (market.isResolved) {
     if (!market.resultKnown || !market.winningSide) {
@@ -309,6 +330,42 @@ async function loadSearchResults(
   });
 }
 
+async function loadResearchSearchResults(query: string): Promise<KalshiMarketsResponse> {
+  const trimmedQuery = query.trim();
+
+  if (!trimmedQuery) {
+    return {
+      mode: "real",
+      environment: "production",
+      markets: [],
+      cursor: null,
+      queryInfo: {
+        originalQuery: "",
+        expandedTerms: [],
+        detectedTeams: [],
+        detectedSports: [],
+        resultCount: 0
+      }
+    };
+  }
+
+  try {
+    const sportsResponse = await loadSearchResults(trimmedQuery, "open");
+
+    if (sportsResponse.markets.length > 0) {
+      return sportsResponse;
+    }
+  } catch {
+    // Fall back to the generic market search below.
+  }
+
+  return backendApi.getKalshiMarkets({
+    limit: 30,
+    status: "open",
+    query: trimmedQuery
+  });
+}
+
 export function PopupApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watchlist, setWatchlist] = useState<KalshiWatchlistItem[]>([]);
@@ -462,7 +519,7 @@ export function PopupApp() {
     setResearchSearchError("");
 
     try {
-      const response = await loadSearchResults(nextQuery, "open");
+      const response = await loadResearchSearchResults(nextQuery);
       setResearchSearchResults(response.markets);
       setResearchSearchQueryInfo(response.queryInfo ?? null);
     } catch (error) {
@@ -1991,7 +2048,7 @@ export function PopupApp() {
                       <div className="position-topline">
                         <span className="market">{pick.marketTitle}</span>
                         <span className={`research-ev-badge ${pick.ev.label === "Positive EV" ? "positive" : pick.ev.label === "Negative EV" ? "negative" : ""}`}>
-                          {pick.ev.label}
+                          {formatValueLabel(pick.ev.label)}
                         </span>
                       </div>
                       <div className="position-meta">
@@ -2018,7 +2075,7 @@ export function PopupApp() {
                       <div className="research-arb-line">
                         Source: {pick.source} · Category: {pick.marketCategory} · Positive: {pick.positiveSignal} · Negative: {pick.negativeSignal}
                       </div>
-                      <div className="position-note">{pick.bestBetReason || pick.reason}</div>
+                      <div className="position-note">{formatValueExplanation(pick)} · {pick.bestBetReason || pick.reason}</div>
                       <div className="combo-result-actions">
                         <button
                           type="button"

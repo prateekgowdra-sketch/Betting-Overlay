@@ -1378,6 +1378,39 @@ const TEAM_SEARCH_ALIASES = {
   ast: "ast"
 };
 
+const MLB_SMART_TEAM_ALIASES = [
+  { sport: "MLB", team: "Arizona Diamondbacks", abbreviation: "ARI", aliases: ["diamondbacks", "dbacks", "arizona diamondbacks", "ari", "arizona"] },
+  { sport: "MLB", team: "Athletics", abbreviation: "ATH", aliases: ["athletics", "a's", "as", "ath", "oakland athletics", "oakland"] },
+  { sport: "MLB", team: "Atlanta Braves", abbreviation: "ATL", aliases: ["braves", "atlanta braves", "atl", "atlanta"] },
+  { sport: "MLB", team: "Baltimore Orioles", abbreviation: "BAL", aliases: ["orioles", "baltimore orioles", "bal", "baltimore"] },
+  { sport: "MLB", team: "Boston Red Sox", abbreviation: "BOS", aliases: ["red sox", "redsox", "boston red sox", "bos", "boston"] },
+  { sport: "MLB", team: "Chicago Cubs", abbreviation: "CHC", aliases: ["cubs", "chicago cubs", "chc"] },
+  { sport: "MLB", team: "Cincinnati Reds", abbreviation: "CIN", aliases: ["reds", "cincinnati reds", "cin", "cincinnati"] },
+  { sport: "MLB", team: "Cleveland Guardians", abbreviation: "CLE", aliases: ["guardians", "cleveland guardians", "cle", "cleveland"] },
+  { sport: "MLB", team: "Colorado Rockies", abbreviation: "COL", aliases: ["rockies", "colorado rockies", "col", "colorado"] },
+  { sport: "MLB", team: "Chicago White Sox", abbreviation: "CWS", aliases: ["white sox", "whitesox", "chicago white sox", "cws"] },
+  { sport: "MLB", team: "Detroit Tigers", abbreviation: "DET", aliases: ["tigers", "detroit tigers", "det", "detroit"] },
+  { sport: "MLB", team: "Houston Astros", abbreviation: "HOU", aliases: ["astros", "houston astros", "hou", "houston"] },
+  { sport: "MLB", team: "Kansas City Royals", abbreviation: "KC", aliases: ["royals", "kansas city royals", "kc", "kansas city"] },
+  { sport: "MLB", team: "Los Angeles Angels", abbreviation: "LAA", aliases: ["angels", "los angeles angels", "laa"] },
+  { sport: "MLB", team: "Los Angeles Dodgers", abbreviation: "LAD", aliases: ["dodgers", "los angeles dodgers", "lad"] },
+  { sport: "MLB", team: "Miami Marlins", abbreviation: "MIA", aliases: ["marlins", "miami marlins", "mia", "miami"] },
+  { sport: "MLB", team: "Milwaukee Brewers", abbreviation: "MIL", aliases: ["brewers", "milwaukee brewers", "mil", "milwaukee"] },
+  { sport: "MLB", team: "Minnesota Twins", abbreviation: "MIN", aliases: ["twins", "minnesota twins", "min", "minnesota"] },
+  { sport: "MLB", team: "New York Mets", abbreviation: "NYM", aliases: ["mets", "new york mets", "nym"] },
+  { sport: "MLB", team: "New York Yankees", abbreviation: "NYY", aliases: ["yankees", "new york yankees", "nyy"] },
+  { sport: "MLB", team: "Philadelphia Phillies", abbreviation: "PHI", aliases: ["phillies", "philadelphia phillies", "phi", "philadelphia"] },
+  { sport: "MLB", team: "Pittsburgh Pirates", abbreviation: "PIT", aliases: ["pirates", "pittsburgh pirates", "pit", "pittsburgh"] },
+  { sport: "MLB", team: "San Diego Padres", abbreviation: "SD", aliases: ["padres", "san diego padres", "sd", "san diego"] },
+  { sport: "MLB", team: "Seattle Mariners", abbreviation: "SEA", aliases: ["mariners", "seattle mariners", "sea", "seattle"] },
+  { sport: "MLB", team: "San Francisco Giants", abbreviation: "SF", aliases: ["giants", "san francisco giants", "sf", "san francisco"] },
+  { sport: "MLB", team: "St. Louis Cardinals", abbreviation: "STL", aliases: ["cardinals", "st. louis cardinals", "st louis cardinals", "stl", "st louis"] },
+  { sport: "MLB", team: "Tampa Bay Rays", abbreviation: "TB", aliases: ["rays", "tampa bay rays", "tb", "tampa bay"] },
+  { sport: "MLB", team: "Texas Rangers", abbreviation: "TEX", aliases: ["rangers", "texas rangers", "tex", "texas"] },
+  { sport: "MLB", team: "Toronto Blue Jays", abbreviation: "TOR", aliases: ["blue jays", "bluejays", "jays", "toronto blue jays", "tor", "toronto"] },
+  { sport: "MLB", team: "Washington Nationals", abbreviation: "WSH", aliases: ["nationals", "washington nationals", "wsh", "washington"] }
+];
+
 const SMART_TEAM_ALIASES = [
   { sport: "NBA", team: "New York Knicks", abbreviation: "NYK", aliases: ["knicks", "new york knicks", "nyk", "new york"] },
   { sport: "NBA", team: "San Antonio Spurs", abbreviation: "SAS", aliases: ["spurs", "san antonio spurs", "sas", "san antonio"] },
@@ -1385,12 +1418,7 @@ const SMART_TEAM_ALIASES = [
   { sport: "NBA", team: "Los Angeles Lakers", abbreviation: "LAL", aliases: ["lakers", "los angeles lakers", "lal", "los angeles"] },
   { sport: "NBA", team: "Oklahoma City Thunder", abbreviation: "OKC", aliases: ["thunder", "oklahoma city thunder", "okc", "oklahoma city"] },
   { sport: "NBA", team: "Cleveland Cavaliers", abbreviation: "CLE", aliases: ["cavaliers", "cavs", "cleveland cavaliers", "cle", "cleveland"] },
-  { sport: "MLB", team: "Texas Rangers", abbreviation: "TEX", aliases: ["rangers", "texas rangers", "tex", "texas"] },
-  { sport: "MLB", team: "St. Louis Cardinals", abbreviation: "STL", aliases: ["cardinals", "st. louis cardinals", "st louis cardinals", "stl", "st louis"] },
-  { sport: "MLB", team: "New York Yankees", abbreviation: "NYY", aliases: ["yankees", "new york yankees", "nyy", "new york"] },
-  { sport: "MLB", team: "New York Mets", abbreviation: "NYM", aliases: ["mets", "new york mets", "nym", "new york"] },
-  { sport: "MLB", team: "Los Angeles Dodgers", abbreviation: "LAD", aliases: ["dodgers", "los angeles dodgers", "lad", "los angeles"] },
-  { sport: "MLB", team: "Boston Red Sox", abbreviation: "BOS", aliases: ["red sox", "redsox", "boston red sox", "bos", "boston"] },
+  ...MLB_SMART_TEAM_ALIASES,
   { sport: "NFL", team: "Kansas City Chiefs", abbreviation: "KC", aliases: ["chiefs", "kansas city chiefs", "kc", "kansas city"] },
   { sport: "NFL", team: "San Francisco 49ers", abbreviation: "SF", aliases: ["49ers", "niners", "san francisco 49ers", "sf", "san francisco"] },
   { sport: "NFL", team: "Philadelphia Eagles", abbreviation: "PHI", aliases: ["eagles", "philadelphia eagles", "phi", "philadelphia"] },
@@ -1506,6 +1534,13 @@ function getSearchTeamGroups(value) {
 
 function getSearchPageBudget(filters = {}) {
   const expandedTokens = getExpandedSearchTokens(filters.search);
+  const detectedTeamSports = new Set(
+    detectTeamsForQuery(filters.search).map((team) => normalizeFilterValue(team.sport))
+  );
+
+  if (detectedTeamSports.size > 0) {
+    return 5;
+  }
 
   if (
     expandedTokens.some((token) =>
@@ -1548,10 +1583,16 @@ function getSearchSeriesTickers(filters = {}) {
   const expandedTokens = getExpandedSearchTokens(search);
   const normalizedSearch = normalizeSearchText(search);
   const selectedSport = normalizeFilterValue(filters.sport);
+  const detectedTeamSports = new Set(
+    detectTeamsForQuery(search).map((team) => normalizeFilterValue(team.sport))
+  );
   const matchesSelectedSport = (definition) =>
     selectedSport &&
     (normalizeFilterValue(definition.key) === selectedSport ||
       normalizeFilterValue(definition.label) === selectedSport);
+  const matchesDetectedTeamSport = (definition) =>
+    detectedTeamSports.has(normalizeFilterValue(definition.key)) ||
+    detectedTeamSports.has(normalizeFilterValue(definition.label));
   const matchesSearch = (definition) =>
     definition.patterns.some((pattern) => {
       const normalizedPattern = normalizeSearchText(pattern);
@@ -1566,7 +1607,9 @@ function getSearchSeriesTickers(filters = {}) {
   return Array.from(
     new Set(
       SPORT_MARKET_DEFINITIONS.filter((definition) =>
-        matchesSelectedSport(definition) || (normalizedSearch && matchesSearch(definition))
+        matchesSelectedSport(definition) ||
+        matchesDetectedTeamSport(definition) ||
+        (normalizedSearch && matchesSearch(definition))
       ).flatMap((definition) => definition.seriesTickers)
     )
   );
@@ -1632,6 +1675,19 @@ function marketSearchHaystack(market) {
     ...(Array.isArray(market.mve_selected_legs)
       ? market.mve_selected_legs.flatMap((leg) => [leg.event_ticker, leg.market_ticker, leg.side])
       : [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function marketVisibleSearchHaystack(market) {
+  return [
+    market.title,
+    market.subtitle,
+    market.yes_sub_title,
+    market.no_sub_title,
+    market.market_title
   ]
     .filter(Boolean)
     .join(" ")
@@ -1720,6 +1776,43 @@ function searchTokensMatchHaystack(searchTokens, haystack) {
     expandSearchToken(token).some(
       (candidate) => termMatchesHaystack(candidate, normalizedHaystack, haystack)
     )
+  );
+}
+
+function tickerSideMatchesTeam(ticker, team) {
+  const normalizedTicker = String(ticker ?? "").toUpperCase();
+  const abbreviation = String(team?.abbreviation ?? "").toUpperCase();
+
+  if (!normalizedTicker || !abbreviation) {
+    return false;
+  }
+
+  const sideSegment = normalizedTicker.split("-").pop();
+
+  return sideSegment === abbreviation;
+}
+
+function teamMatchesMarketDirectly(team, market) {
+  const visibleHaystack = marketVisibleSearchHaystack(market);
+  const normalizedVisibleHaystack = normalizeSearchText(visibleHaystack);
+
+  return (
+    team.normalizedAliases.some((alias) =>
+      termMatchesHaystack(alias, normalizedVisibleHaystack, visibleHaystack)
+    ) ||
+    tickerSideMatchesTeam(market?.ticker, team)
+  );
+}
+
+function teamSearchMatchesMarketDirectly(filters, market) {
+  const teamGroups = getSearchTeamGroups(filters.search);
+
+  if (teamGroups.length === 0) {
+    return true;
+  }
+
+  return teamGroups.every((group) =>
+    group.some((team) => teamMatchesMarketDirectly(team, market))
   );
 }
 
@@ -2017,6 +2110,10 @@ function marketMatchesFilter(market, filters = {}) {
   }
 
   if (String(filters.search ?? "").trim()) {
+    if (!teamSearchMatchesMarketDirectly(filters, market)) {
+      return false;
+    }
+
     return searchTokensMatchHaystack(searchTokens, marketSearchHaystack(market));
   }
 
