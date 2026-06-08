@@ -330,7 +330,7 @@ async function loadSearchResults(
   });
 }
 
-async function loadResearchSearchResults(query: string): Promise<KalshiMarketsResponse> {
+async function loadResearchSearchResults(query: string, scope = ""): Promise<KalshiMarketsResponse> {
   const trimmedQuery = query.trim();
 
   if (!trimmedQuery) {
@@ -350,7 +350,7 @@ async function loadResearchSearchResults(query: string): Promise<KalshiMarketsRe
   }
 
   try {
-    const sportsResponse = await loadSearchResults(trimmedQuery, "open");
+    const sportsResponse = await loadSearchResults(trimmedQuery, "open", "", "", scope);
 
     if (sportsResponse.markets.length > 0) {
       return sportsResponse;
@@ -359,11 +359,18 @@ async function loadResearchSearchResults(query: string): Promise<KalshiMarketsRe
     // Fall back to the generic market search below.
   }
 
-  return backendApi.getKalshiMarkets({
+  const fallbackResponse = await backendApi.getKalshiMarkets({
     limit: 30,
     status: "open",
     query: trimmedQuery
   });
+
+  return scope
+    ? {
+        ...fallbackResponse,
+        markets: fallbackResponse.markets.filter((market) => market.scope === scope)
+      }
+    : fallbackResponse;
 }
 
 export function PopupApp() {
@@ -394,6 +401,7 @@ export function PopupApp() {
   const [hasSearchedComboLegs, setHasSearchedComboLegs] = useState(false);
   const [researchSettings, setResearchSettings] = useState<ResearchSettings | null>(null);
   const [researchSearchQuery, setResearchSearchQuery] = useState("");
+  const [researchSearchScope, setResearchSearchScope] = useState("");
   const [researchSearchResults, setResearchSearchResults] = useState<KalshiMarketSnapshot[]>([]);
   const [researchSearchQueryInfo, setResearchSearchQueryInfo] = useState<KalshiMarketsResponse["queryInfo"] | null>(null);
   const [researchSearchError, setResearchSearchError] = useState("");
@@ -514,12 +522,12 @@ export function PopupApp() {
     }
   }
 
-  async function runResearchSearch(nextQuery = researchSearchQuery) {
+  async function runResearchSearch(nextQuery = researchSearchQuery, nextScope = researchSearchScope) {
     setIsLoadingResearchResults(true);
     setResearchSearchError("");
 
     try {
-      const response = await loadResearchSearchResults(nextQuery);
+      const response = await loadResearchSearchResults(nextQuery, nextScope);
       setResearchSearchResults(response.markets);
       setResearchSearchQueryInfo(response.queryInfo ?? null);
     } catch (error) {
@@ -1706,14 +1714,28 @@ export function PopupApp() {
             className="search-row research-search-row"
             onSubmit={(event) => {
               event.preventDefault();
-              void runResearchSearch(researchSearchQuery);
+              void runResearchSearch(researchSearchQuery, researchSearchScope);
             }}
           >
             <input
               value={researchSearchQuery}
-              placeholder="Search markets for research"
+              placeholder="Search teams, players, or props"
               onChange={(event) => setResearchSearchQuery(event.target.value)}
             />
+            <select
+              value={researchSearchScope}
+              onChange={(event) => {
+                const nextScope = event.target.value;
+                setResearchSearchScope(nextScope);
+                if (researchSearchQuery.trim()) {
+                  void runResearchSearch(researchSearchQuery, nextScope);
+                }
+              }}
+            >
+              <option value="">All markets</option>
+              <option value="team">Team/game lines</option>
+              <option value="player">Player props</option>
+            </select>
             <button type="submit" disabled={isLoadingResearchResults}>
               Search
             </button>
@@ -2054,6 +2076,7 @@ export function PopupApp() {
                       <div className="position-meta">
                         <span>{pick.marketTicker}</span>
                         <span>Pick {pick.side}</span>
+                        <span>{pick.marketCategory}</span>
                       </div>
                       <div className="research-metric-grid">
                         <span>{pick.side} price <strong>{formatPrice(pick.currentPriceCents)}</strong></span>

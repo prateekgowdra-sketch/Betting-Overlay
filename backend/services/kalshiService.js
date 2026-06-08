@@ -1104,6 +1104,66 @@ const DIRECT_SPORTS_LINE_TYPES = [
   "QUALIFY",
   "ADVANCE"
 ];
+const PLAYER_PROP_LINE_TYPES = new Set([
+  "PTS",
+  "REB",
+  "AST",
+  "3PT",
+  "STL",
+  "BLK",
+  "TO",
+  "HR",
+  "HIT",
+  "KS",
+  "TD",
+  "PASS",
+  "RUSH",
+  "REC",
+  "GOAL",
+  "SOG",
+  "SAVE"
+]);
+const PLAYER_PROP_SERIES_TICKERS = ["KXNBA", "KXMLB", "KXNFL", "KXNHL"];
+const PLAYER_PROP_SEARCH_TERMS = new Set([
+  "player",
+  "prop",
+  "props",
+  "points",
+  "point",
+  "pts",
+  "rebounds",
+  "rebound",
+  "reb",
+  "assists",
+  "assist",
+  "ast",
+  "threes",
+  "3pt",
+  "3pm",
+  "steals",
+  "blocks",
+  "turnovers",
+  "home",
+  "homer",
+  "homers",
+  "hr",
+  "hits",
+  "hit",
+  "strikeouts",
+  "strikeout",
+  "touchdowns",
+  "touchdown",
+  "td",
+  "passing",
+  "rushing",
+  "receiving",
+  "goals",
+  "goal",
+  "shots",
+  "sog",
+  "saves",
+  "save"
+]);
 
 function normalizeFilterValue(value) {
   return String(value ?? "")
@@ -1153,6 +1213,16 @@ const GENERIC_SEARCH_TERMS = new Set([
 
 function getMeaningfulSearchTokens(value) {
   return getSearchTokens(value).filter((token) => !GENERIC_SEARCH_TERMS.has(token));
+}
+
+function isPlayerPropSearch(value) {
+  const normalized = normalizeSearchText(value);
+  const tokens = getMeaningfulSearchTokens(value);
+
+  return (
+    /\bplayer\s+props?\b/.test(normalized) ||
+    tokens.some((token) => PLAYER_PROP_SEARCH_TERMS.has(token))
+  );
 }
 
 const TEAM_SEARCH_ALIASES = {
@@ -1542,6 +1612,10 @@ function getSearchPageBudget(filters = {}) {
     return 5;
   }
 
+  if (isPlayerPropSearch(filters.search)) {
+    return 6;
+  }
+
   if (
     expandedTokens.some((token) =>
       [
@@ -1606,11 +1680,16 @@ function getSearchSeriesTickers(filters = {}) {
 
   return Array.from(
     new Set(
-      SPORT_MARKET_DEFINITIONS.filter((definition) =>
-        matchesSelectedSport(definition) ||
-        matchesDetectedTeamSport(definition) ||
-        (normalizedSearch && matchesSearch(definition))
-      ).flatMap((definition) => definition.seriesTickers)
+      [
+        ...SPORT_MARKET_DEFINITIONS.filter((definition) =>
+          matchesSelectedSport(definition) ||
+          matchesDetectedTeamSport(definition) ||
+          (normalizedSearch && matchesSearch(definition))
+        ).flatMap((definition) => definition.seriesTickers),
+        ...(isPlayerPropSearch(search) && !selectedSport && detectedTeamSports.size === 0
+          ? PLAYER_PROP_SERIES_TICKERS
+          : [])
+      ]
     )
   );
 }
@@ -1661,6 +1740,7 @@ function marketMatchesSearchWithEventContext(market, rawMarket, rawEvent, filter
 
 function marketSearchHaystack(market) {
   return [
+    market.displayTitle,
     market.title,
     market.ticker,
     market.subtitle,
@@ -1683,6 +1763,7 @@ function marketSearchHaystack(market) {
 
 function marketVisibleSearchHaystack(market) {
   return [
+    market.displayTitle,
     market.title,
     market.subtitle,
     market.yes_sub_title,
@@ -1787,9 +1868,9 @@ function tickerSideMatchesTeam(ticker, team) {
     return false;
   }
 
-  const sideSegment = normalizedTicker.split("-").pop();
+  const tickerSegments = normalizedTicker.split("-");
 
-  return sideSegment === abbreviation;
+  return tickerSegments.some((segment) => segment === abbreviation || segment.startsWith(abbreviation));
 }
 
 function teamMatchesMarketDirectly(team, market) {
@@ -1813,6 +1894,30 @@ function teamSearchMatchesMarketDirectly(filters, market) {
 
   return teamGroups.every((group) =>
     group.some((team) => teamMatchesMarketDirectly(team, market))
+  );
+}
+
+function tokenMatchesAnyTeamGroup(token, teamGroups) {
+  const expandedToken = expandSearchToken(token);
+
+  return teamGroups.some((group) =>
+    group.some((team) =>
+      expandedToken.some((candidate) => team.normalizedAliases.includes(candidate))
+    )
+  );
+}
+
+function nonTeamSearchTokensMatchMarket(searchTokens, teamGroups, haystack) {
+  const nonTeamTokens = searchTokens.filter((token) => !tokenMatchesAnyTeamGroup(token, teamGroups));
+
+  if (nonTeamTokens.length === 0) {
+    return true;
+  }
+
+  return nonTeamTokens.every((token) =>
+    expandSearchToken(token).some((candidate) =>
+      termMatchesHaystack(candidate, normalizeSearchText(haystack), haystack)
+    )
   );
 }
 
@@ -1926,6 +2031,37 @@ function isDirectSportsLineTicker(ticker) {
 
     return DIRECT_SPORTS_LINE_TYPES.some((lineType) => rest.startsWith(lineType));
   });
+}
+
+function inferSportsLineTypeFromTicker(ticker) {
+  const normalizedTicker = String(ticker ?? "").toUpperCase().replace(/^KX/, "");
+  const sportPrefix = SPORT_TICKER_PREFIXES.find((prefix) => normalizedTicker.startsWith(prefix));
+
+  if (!sportPrefix) {
+    return null;
+  }
+
+  const rest = normalizedTicker.slice(sportPrefix.length);
+
+  return DIRECT_SPORTS_LINE_TYPES.find((lineType) => rest.startsWith(lineType)) ?? null;
+}
+
+function inferMarketScopeFromTicker(ticker) {
+  const lineType = inferSportsLineTypeFromTicker(ticker);
+
+  if (!lineType) {
+    return null;
+  }
+
+  if (PLAYER_PROP_LINE_TYPES.has(lineType)) {
+    return "player";
+  }
+
+  if (["GAME", "WIN", "WINNER", "MONEYLINE", "SPREAD"].includes(lineType)) {
+    return "team";
+  }
+
+  return "market";
 }
 
 function marketSortScore(market, filters = {}) {
@@ -2062,11 +2198,12 @@ function deriveSportsMarketMetadata(rawMarket) {
     scope:
       typeof rawMarket.scope === "string" && rawMarket.scope.trim()
         ? rawMarket.scope.trim()
-        : parsed.marketType === "player"
-          ? "player"
-          : parsed.marketType === "team"
-            ? "team"
-            : "market"
+        : inferMarketScopeFromTicker(rawMarket.ticker) ??
+          (parsed.marketType === "player"
+            ? "player"
+            : parsed.marketType === "team"
+              ? "team"
+              : "market")
   };
 }
 
@@ -2110,8 +2247,13 @@ function marketMatchesFilter(market, filters = {}) {
   }
 
   if (String(filters.search ?? "").trim()) {
-    if (!teamSearchMatchesMarketDirectly(filters, market)) {
-      return false;
+    const teamGroups = getSearchTeamGroups(filters.search);
+
+    if (teamGroups.length > 0) {
+      return (
+        teamSearchMatchesMarketDirectly(filters, market) &&
+        nonTeamSearchTokensMatchMarket(searchTokens, teamGroups, marketSearchHaystack(market))
+      );
     }
 
     return searchTokensMatchHaystack(searchTokens, marketSearchHaystack(market));
@@ -2650,15 +2792,30 @@ class KalshiService {
         break;
       }
 
-      try {
-        const seriesResponse = await this.getPublicMarkets({
-          series_ticker: seriesTicker,
-          limit: pageLimit,
-          ...(filters.status ? { status: filters.status } : {})
-        });
+      let seriesCursor = null;
 
-        addMarkets(seriesResponse.markets);
-        response = response ?? seriesResponse;
+      try {
+        for (let page = 0; page < maxPages; page += 1) {
+          const seriesResponse = await this.getPublicMarkets({
+            series_ticker: seriesTicker,
+            limit: pageLimit,
+            ...(seriesCursor ? { cursor: seriesCursor } : {}),
+            ...(filters.status ? { status: filters.status } : {})
+          });
+
+          addMarkets(seriesResponse.markets);
+          response = response ?? seriesResponse;
+
+          if (collectedMarkets.filter((market) => marketMatchesFilter(market, filters)).length >= limit) {
+            break;
+          }
+
+          if (!seriesResponse.cursor) {
+            break;
+          }
+
+          seriesCursor = seriesResponse.cursor;
+        }
       } catch {
         // Some Kalshi sports use event/ticker naming that is not exposed as a series filter.
       }

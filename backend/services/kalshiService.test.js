@@ -239,6 +239,61 @@ test("marketMatchesFilter expands Castle assists player/stat searches", () => {
   assert.equal(marketMatchesFilter(market, { search: "castle assists" }), true);
 });
 
+test("Spurs search matches direct team markets", () => {
+  const teamMarket = normalizeTrackedMarket({
+    ticker: "KXNBAGAME-26JUN03NYKSAS-SAS",
+    event_ticker: "KXNBAGAME-26JUN03NYKSAS",
+    title: "Game 1: New York at San Antonio Winner?",
+    status: "open",
+    yes_bid_cents: 36,
+    yes_ask_cents: 39,
+    no_bid_cents: 61,
+    no_ask_cents: 64,
+    last_price_cents: 38,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.equal(marketMatchesFilter(teamMarket, { search: "spurs" }), true);
+  assert.equal(marketMatchesFilter(teamMarket, { sport: "nba", search: "spurs" }), true);
+});
+
+test("player prop searches can be filtered to player scope", () => {
+  const playerProp = normalizeTrackedMarket({
+    ticker: "KXNBAAST-26JUN03NYKSAS-SASCASTLE-6",
+    event_ticker: "KXNBAGAME-26JUN03NYKSAS",
+    title: "Will Stephon Castle record 6+ assists?",
+    status: "open",
+    yes_bid_cents: 46,
+    yes_ask_cents: 49,
+    no_bid_cents: 51,
+    no_ask_cents: 54,
+    last_price_cents: 48,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.equal(playerProp.scope, "player");
+  assert.equal(marketMatchesFilter(playerProp, { scope: "player", search: "castle assists" }), true);
+  assert.equal(marketMatchesFilter(playerProp, { scope: "team", search: "castle assists" }), false);
+});
+
+test("team searches can include player props for that team", () => {
+  const playerProp = normalizeTrackedMarket({
+    ticker: "KXNBAAST-26JUN03NYKSAS-SASCASTLE-6",
+    event_ticker: "KXNBAGAME-26JUN03NYKSAS",
+    title: "Will Stephon Castle record 6+ assists?",
+    status: "open",
+    yes_bid_cents: 46,
+    yes_ask_cents: 49,
+    no_bid_cents: 51,
+    no_ask_cents: 54,
+    last_price_cents: 48,
+    updated_at: "2026-06-03T18:30:00Z"
+  });
+
+  assert.equal(marketMatchesFilter(playerProp, { search: "spurs" }), true);
+  assert.equal(marketMatchesFilter(playerProp, { scope: "player", search: "spurs assists" }), true);
+});
+
 test("marketSortScore prioritizes direct matchup markets over weak event markets", () => {
   const directMarket = normalizeTrackedMarket({
     ticker: "KXNBAGAME-26JUN03NYKSAS-NYK",
